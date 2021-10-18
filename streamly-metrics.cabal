@@ -115,9 +115,15 @@ common lib-options
 library
     import: lib-options
 
-    hs-source-dirs:    src
+    hs-source-dirs: src
     exposed-modules:
-                       Streamly.Metrics
+       Streamly.Metrics.Type
+     , Streamly.Metrics.Perf
+     , Streamly.Metrics.Channel
+     , Streamly.Metrics.Measure
+     , Streamly.Metrics.File
+     , Streamly.Metrics.Console
 
     build-depends:
-                       base              >= 4.9   &&  < 5
+       base >= 4.9 && < 5
+     , streamly
