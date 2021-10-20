@@ -117,7 +117,8 @@ library
 
     hs-source-dirs: src
     exposed-modules:
-       Streamly.Metrics.Type
+       Streamly.KeyValue.Type
+     , Streamly.Metrics.Type
      , Streamly.Metrics.Perf
      , Streamly.Metrics.Channel
      , Streamly.Metrics.Measure
