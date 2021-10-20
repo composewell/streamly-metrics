@@ -17,14 +17,6 @@ module Streamly.KeyValue.Type
     (
     -- * KeyValue
       KeyValue (..)
-      {-
-    , Semiring (..)
-    , Ring (..)
-    , CommutativeRing
-    , DivisionRing (..)
-    , EuclideanRing (..)
-    , Field
-    -}
     )
 where
 
@@ -87,40 +79,6 @@ instance (Eq k, Semigroup v) => Semigroup (KeyValue k v) where
 --
 -- Another approach is to use a Zippable instance and then use zipWith (+) etc
 -- to zip the underlying values.
-
-{-
-class Semiring a where
-    add  :: a -> a -> a
-    zero :: a
-    mul  :: a -> a -> a
-    one  :: a
-
-class Semiring a => Ring a where
-    sub :: a -> a -> a
-
-class Ring a => CommutativeRing a
-
-class Ring a => DivisionRing a where
-    recip :: a -> a
-
-class CommutativeRing a => EuclideanRing a where
-    div :: a -> a -> a
-    mod :: a -> a -> a
-
-class (EuclideanRing a, DivisionRing a) => Field a
-
-instance (Eq k, Semiring v) => Semiring (KeyValue k v) where
-    {-# INLINE add #-}
-    (KeyValue k1 v1) `add` (KeyValue k2 v2) =
-        assert (k1 == k2) (KeyValue k1 (v1 `add` v2))
-
-    {-# INLINE zero #-}
-    zero = KeyValue undefined zero
-
-    {-# INLINE mul #-}
-    (KeyValue k1 v1) `mul` (KeyValue k2 v2) =
-        assert (k1 == k2) $ KeyValue k1 (v1 `mul` v2)
--}
 
 -- | Num operations on types without requiring them to have fromInteger and
 -- toInteger.
