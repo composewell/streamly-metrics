@@ -108,6 +108,10 @@ common optimization-options
 common lib-options
   import: compile-options, optimization-options, default-extensions
 
+common test-options
+  import: compile-options, optimization-options, default-extensions
+  ghc-options: -with-rtsopts -T
+
 -------------------------------------------------------------------------------
 -- Library
 -------------------------------------------------------------------------------
@@ -128,3 +132,12 @@ library
     build-depends:
        base >= 4.9 && < 5
      , streamly
+
+test-suite basic
+  import: test-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  build-depends:
+       base >= 4.9 && < 5
+     , streamly-metrics
