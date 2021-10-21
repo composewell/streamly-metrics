@@ -5,6 +5,7 @@ module Streamly.Metrics.Perf
     )
 where
 
+import Streamly.Metrics.Type (Counter(..), GaugeMax(..))
 import Streamly.Metrics.Measure (bracketWith)
 import Data.Word (Word64)
 import System.Mem (performGC)
@@ -12,10 +13,10 @@ import System.CPUTime (getCPUTime)
 import GHC.Stats
 
 data Stats =
-    CpuSeconds !Double
-  | GcAllocatedBytes !Word64
-  | GcCopiedBytes !Word64
-  | GcMaxMemInUse !Word64
+    CpuSeconds !(Counter Double)
+  | GcAllocatedBytes !(Counter Word64)
+  | GcCopiedBytes !(Counter Word64)
+  | GcMaxMemInUse !(GaugeMax Word64)
     deriving (Show)
 
 #define UNARY_OP_ONE(constr,op) op (constr a) = constr (op a)
@@ -54,9 +55,9 @@ getStats = do
         stats <- getRTSStats
         pure
             [ CpuSeconds cpuSec
-            , GcAllocatedBytes (allocated_bytes stats)
-            , GcCopiedBytes (copied_bytes stats)
-            , GcMaxMemInUse (max_mem_in_use_bytes stats)
+            , GcAllocatedBytes (Counter (allocated_bytes stats))
+            , GcCopiedBytes (Counter (copied_bytes stats))
+            , GcMaxMemInUse (GaugeMax (max_mem_in_use_bytes stats))
             ]
     else pure
             [ CpuSeconds cpuSec

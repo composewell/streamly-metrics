@@ -22,7 +22,7 @@ module Streamly.Metrics.Type
     -- @volatile@.
       Log (..)
     , Counter (..)
-    , Gauge (..)
+    , GaugeMax (..)
 
     -- * Ordering
     -- | Metrics may be ordered with respect to each other or with respect to
@@ -73,7 +73,7 @@ newtype Log a = Log a
 -- Time is a fundamental counter, in fact it is a reference counter for
 -- all changes, changes are measured with respect to time.
 
-newtype Counter a = Counter a
+newtype Counter a = Counter a deriving (Show, Num, Fractional)
 
 -- | Represents the current utilization level of some resource e.g. memory
 -- in use. A gauge can increase or decrease from a previous value.
@@ -85,7 +85,11 @@ newtype Counter a = Counter a
 -- maximum (e.g. peak memory) or minimum (e.g. available memory), average (e.g.
 -- load average) or range.
 --
-newtype Gauge a = Gauge a
+newtype GaugeMax a = GaugeMax a deriving (Show)
+
+instance Ord a => Num (GaugeMax a) where
+    (GaugeMax a) - (GaugeMax b) = GaugeMax (max a b)
+    (GaugeMax a) + (GaugeMax b) = GaugeMax (max a b)
 
 -------------------------------------------------------------------------------
 -- Metrics ordering
