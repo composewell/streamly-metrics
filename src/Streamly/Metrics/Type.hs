@@ -73,7 +73,10 @@ newtype Log a = Log a
 -- Time is a fundamental counter, in fact it is a reference counter for
 -- all changes, changes are measured with respect to time.
 
-newtype Counter a = Counter a deriving (Show, Num, Fractional)
+newtype Counter a = Counter a deriving (Num, Fractional)
+
+instance Show a => Show (Counter a) where
+    show (Counter a) = show a
 
 -- | Represents the current utilization level of some resource e.g. memory
 -- in use. A gauge can increase or decrease from a previous value.
@@ -85,7 +88,10 @@ newtype Counter a = Counter a deriving (Show, Num, Fractional)
 -- maximum (e.g. peak memory) or minimum (e.g. available memory), average (e.g.
 -- load average) or range.
 --
-newtype GaugeMax a = GaugeMax a deriving (Show)
+newtype GaugeMax a = GaugeMax a
+
+instance Show a => Show (GaugeMax a) where
+    show (GaugeMax a) = show a
 
 instance Ord a => Num (GaugeMax a) where
     (GaugeMax a) - (GaugeMax b) = GaugeMax (max a b)
