@@ -29,10 +29,15 @@ module Streamly.Metrics.Type
     -- time.
     , Timestamped (..)
     , Sequenced (..)
+
+    -- * Units
+    , Seconds
+    , Bytes
     )
 where
 
 import Streamly.Internal.Data.Time.Units (AbsTime)
+import Text.Printf (printf, PrintfArg)
 
 -------------------------------------------------------------------------------
 -- Metric semantics
@@ -73,7 +78,9 @@ newtype Log a = Log a
 -- Time is a fundamental counter, in fact it is a reference counter for
 -- all changes, changes are measured with respect to time.
 
-newtype Counter a = Counter a deriving (Num, Fractional)
+newtype Counter a =
+    Counter a
+        deriving (Num, Fractional)
 
 instance Show a => Show (Counter a) where
     show (Counter a) = show a
@@ -93,7 +100,13 @@ newtype GaugeMax a = GaugeMax a
 instance Show a => Show (GaugeMax a) where
     show (GaugeMax a) = show a
 
-instance Ord a => Num (GaugeMax a) where
+instance (Num a, Ord a) => Num (GaugeMax a) where
+    fromInteger a = GaugeMax (fromInteger a)
+    abs (GaugeMax a) = GaugeMax (abs a)
+    signum (GaugeMax a) = GaugeMax (signum a)
+    (GaugeMax a) * (GaugeMax b) = GaugeMax (a * b)
+
+    -- For a GaugeMax these are defined as maximum of the two values
     (GaugeMax a) - (GaugeMax b) = GaugeMax (max a b)
     (GaugeMax a) + (GaugeMax b) = GaugeMax (max a b)
 
@@ -123,4 +136,49 @@ data Timestamped a = Timestamped AbsTime a    -- XXX use a tuple and derive Ord?
 -- like a file whereas a metric set would be like a dir tree (MetricTree).
 --
 -- ZipList and a single level Map are a one level metric tree.
---
+
+-------------------------------------------------------------------------------
+-- Units
+-------------------------------------------------------------------------------
+
+-- | Describe a relative unit i.e. a unit in terms of another unit. A relative
+-- unit has a label and a ratio which when multiplied with the unit gives us
+-- the other unit. For example, if the known time unit is seconds, we can
+-- describe a millisecond as @Unit "ms" (1/1000)@.
+data RelativeUnit a = RelativeUnit String a deriving Show
+
+-- Given seconds, choose appropriate unit based on the size
+secondsConverter :: (Ord a, Fractional a) => a -> RelativeUnit a
+secondsConverter k
+    | k < 0      = secondsConverter (-k)
+    | k >= 1     = RelativeUnit "s" 1
+    | k >= 1e-3  = RelativeUnit "ms" 1e3
+    | k >= 1e-6  = RelativeUnit "μs" 1e6
+    | otherwise  = RelativeUnit "ns" 1e9
+
+newtype Seconds a = Seconds a deriving (Num, Fractional)
+
+instance (Show a, Ord a, Fractional a, PrintfArg a) => Show (Seconds a) where
+    show (Seconds t) =
+        let (RelativeUnit label multiplier) = secondsConverter t
+         in printf "%.2f" (t * multiplier) ++ " " ++ label
+
+-- Given bytes, choose appropriate unit based on the size
+bytesConverter :: (Num a, Ord a) => a -> RelativeUnit a
+bytesConverter k
+    | k < 0              = bytesConverter (-k)
+    | k >= 2^(30 :: Int) = RelativeUnit "GiB" (2^(30 :: Int))
+    | k >= 2^(20 :: Int) = RelativeUnit "MiB" (2^(20 :: Int))
+    | k >= 2^(10 :: Int) = RelativeUnit "KiB" (2^(10 :: Int))
+    | otherwise          = RelativeUnit "Bytes" 1
+
+newtype Bytes a = Bytes a deriving (Num, Eq, Ord)
+
+instance (Show a, Num a, Ord a, PrintfArg a, Integral a) => Show (Bytes a)
+
+    where
+
+    show (Bytes b) =
+        let (RelativeUnit label multiplier) = bytesConverter b
+            n = fromIntegral b / fromIntegral multiplier :: Double
+         in printf "%.2f" n ++ " " ++ label

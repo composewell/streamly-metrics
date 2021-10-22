@@ -5,23 +5,25 @@ module Streamly.Metrics.Perf
     )
 where
 
-import Streamly.Metrics.Type (Counter(..), GaugeMax(..))
-import Streamly.Metrics.Measure (bracketWith)
 import Data.Word (Word64)
+import GHC.Stats (getRTSStats, getRTSStatsEnabled, RTSStats(..))
+import Streamly.Metrics.Type (Counter(..), GaugeMax(..), Seconds, Bytes)
+import Streamly.Metrics.Measure (bracketWith)
 import System.Mem (performGC)
 import System.CPUTime (getCPUTime)
-import GHC.Stats
 
+-- Use Counter/Gauge as the outer constructor and Bytes/Seconds as the inner
+-- constuctor.
 data Stats =
-    CpuSeconds !(Counter Double)
-  | GcAllocatedBytes !(Counter Word64)
-  | GcCopiedBytes !(Counter Word64)
-  | GcMaxMemInUse !(GaugeMax Word64)
+    CPUTime !(Counter (Seconds Double))
+  | GcAllocatedBytes !(Counter (Bytes Word64))
+  | GcCopiedBytes !(Counter (Bytes Word64))
+  | GcMaxMemInUse !(GaugeMax (Bytes Word64))
     deriving (Show)
 
 #define UNARY_OP_ONE(constr,op) op (constr a) = constr (op a)
 #define UNARY_OP(op) \
-    UNARY_OP_ONE(CpuSeconds,op); \
+    UNARY_OP_ONE(CPUTime,op); \
     UNARY_OP_ONE(GcAllocatedBytes,op); \
     UNARY_OP_ONE(GcCopiedBytes,op); \
     UNARY_OP_ONE(GcMaxMemInUse,op);
@@ -30,7 +32,7 @@ data Stats =
 #define FUNC_OP_ONE(constr,op) constr a `op` constr b = constr (a `op` b)
 
 #define INFIX_OP(op) \
-    INFIX_OP_ONE(CpuSeconds,op); \
+    INFIX_OP_ONE(CPUTime,op); \
     INFIX_OP_ONE(GcAllocatedBytes,op); \
     INFIX_OP_ONE(GcCopiedBytes,op); \
     INFIX_OP_ONE(GcMaxMemInUse,op); \
@@ -54,13 +56,13 @@ getStats = do
     then do
         stats <- getRTSStats
         pure
-            [ CpuSeconds cpuSec
-            , GcAllocatedBytes (Counter (allocated_bytes stats))
-            , GcCopiedBytes (Counter (copied_bytes stats))
-            , GcMaxMemInUse (GaugeMax (max_mem_in_use_bytes stats))
+            [ CPUTime cpuSec
+            , GcAllocatedBytes (fromIntegral (allocated_bytes stats))
+            , GcCopiedBytes (fromIntegral (copied_bytes stats))
+            , GcMaxMemInUse (fromIntegral (max_mem_in_use_bytes stats))
             ]
     else pure
-            [ CpuSeconds cpuSec
+            [ CPUTime cpuSec
             , GcAllocatedBytes 0
             , GcCopiedBytes 0
             , GcMaxMemInUse 0
