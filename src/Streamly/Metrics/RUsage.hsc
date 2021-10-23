@@ -78,12 +78,12 @@ has the following form:
 ------------------------------------------------------------------------------}
 
 data RUsage = RUsage
-    { ru_utime    :: {-# UNPACK #-} !Double
-    , ru_stime    :: {-# UNPACK #-} !Double
-    , ru_maxrss   :: {-# UNPACK #-} !Word64
-    , ru_ixrss    :: {-# UNPACK #-} !Word64
-    , ru_idrss    :: {-# UNPACK #-} !Word64
-    , ru_isrss    :: {-# UNPACK #-} !Word64
+    { ru_utime    :: {-# UNPACK #-} !Double -- seconds
+    , ru_stime    :: {-# UNPACK #-} !Double -- seconds
+    , ru_maxrss   :: {-# UNPACK #-} !Word64 -- Bytes
+    , ru_ixrss    :: {-# UNPACK #-} !Word64 -- Bytes
+    , ru_idrss    :: {-# UNPACK #-} !Word64 -- Bytes
+    , ru_isrss    :: {-# UNPACK #-} !Word64 -- Bytes
     , ru_minflt   :: {-# UNPACK #-} !Word64
     , ru_majflt   :: {-# UNPACK #-} !Word64
     , ru_nswap    :: {-# UNPACK #-} !Word64
@@ -116,10 +116,10 @@ instance Storable RUsage where
         RUsage
             <$> (timeValToDouble <$> (#peek struct rusage, ru_utime) p)
             <*> (timeValToDouble <$> (#peek struct rusage, ru_stime) p)
-            <*> (clongToW64 <$> (#peek struct rusage, ru_maxrss  ) p)
-            <*> (clongToW64 <$> (#peek struct rusage, ru_ixrss   ) p)
-            <*> (clongToW64 <$> (#peek struct rusage, ru_idrss   ) p)
-            <*> (clongToW64 <$> (#peek struct rusage, ru_isrss   ) p)
+            <*> ((* 1024) . clongToW64 <$> (#peek struct rusage, ru_maxrss) p)
+            <*> ((* 1024) . clongToW64 <$> (#peek struct rusage, ru_ixrss ) p)
+            <*> ((* 1024) . clongToW64 <$> (#peek struct rusage, ru_idrss ) p)
+            <*> ((* 1024) . clongToW64 <$> (#peek struct rusage, ru_isrss ) p)
             <*> (clongToW64 <$> (#peek struct rusage, ru_minflt  ) p)
             <*> (clongToW64 <$> (#peek struct rusage, ru_majflt  ) p)
             <*> (clongToW64 <$> (#peek struct rusage, ru_nswap   ) p)
@@ -134,10 +134,10 @@ instance Storable RUsage where
     poke p RUsage{..} = do
         (#poke struct rusage, ru_utime)    p (doubleToTimeVal ru_utime)
         (#poke struct rusage, ru_stime)    p (doubleToTimeVal ru_stime)
-        (#poke struct rusage, ru_maxrss)   p (w64ToCLong ru_maxrss)
-        (#poke struct rusage, ru_ixrss)    p (w64ToCLong ru_ixrss)
-        (#poke struct rusage, ru_idrss)    p (w64ToCLong ru_idrss)
-        (#poke struct rusage, ru_isrss)    p (w64ToCLong ru_isrss)
+        (#poke struct rusage, ru_maxrss)  p (w64ToCLong (ru_maxrss `div` 1024))
+        (#poke struct rusage, ru_ixrss)    p (w64ToCLong (ru_ixrss `div` 1024))
+        (#poke struct rusage, ru_idrss)    p (w64ToCLong (ru_idrss `div` 1024))
+        (#poke struct rusage, ru_isrss)    p (w64ToCLong (ru_isrss `div` 1024))
         (#poke struct rusage, ru_minflt)   p (w64ToCLong ru_minflt)
         (#poke struct rusage, ru_majflt)   p (w64ToCLong ru_majflt)
         (#poke struct rusage, ru_nswap)    p (w64ToCLong ru_nswap)
