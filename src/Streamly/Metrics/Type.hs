@@ -31,8 +31,8 @@ module Streamly.Metrics.Type
     , Sequenced (..)
 
     -- * Units
-    , Seconds
-    , Bytes
+    , Seconds (..)
+    , Bytes (..)
     )
 where
 

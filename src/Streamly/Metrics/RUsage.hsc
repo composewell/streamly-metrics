@@ -78,8 +78,8 @@ has the following form:
 ------------------------------------------------------------------------------}
 
 data RUsage = RUsage
-    { ru_utime    :: {-# UNPACK #-} !TimeVal
-    , ru_stime    :: {-# UNPACK #-} !TimeVal
+    { ru_utime    :: {-# UNPACK #-} !Double
+    , ru_stime    :: {-# UNPACK #-} !Double
     , ru_maxrss   :: {-# UNPACK #-} !Word64
     , ru_ixrss    :: {-# UNPACK #-} !Word64
     , ru_idrss    :: {-# UNPACK #-} !Word64
@@ -96,6 +96,17 @@ data RUsage = RUsage
     , ru_nivcsw   :: {-# UNPACK #-} !Word64
     } deriving (Show, Eq)
 
+-- | convert TimeVal to seconds
+timeValToDouble :: TimeVal -> Double
+timeValToDouble (TimeVal s us) =
+    fromIntegral s + fromIntegral us * 1e-6
+
+-- | convert seconds to TimeVal
+doubleToTimeVal :: Double -> TimeVal
+doubleToTimeVal sec =
+    let (s, us) = round (sec * 1e6) `divMod` (10^(6::Int))
+     in TimeVal s us
+
 instance Storable RUsage where
     alignment _ = 8
 
@@ -103,8 +114,8 @@ instance Storable RUsage where
 
     peek p =
         RUsage
-            <$> (#peek struct rusage, ru_utime) p
-            <*> (#peek struct rusage, ru_stime) p
+            <$> (timeValToDouble <$> (#peek struct rusage, ru_utime) p)
+            <*> (timeValToDouble <$> (#peek struct rusage, ru_stime) p)
             <*> (clongToW64 <$> (#peek struct rusage, ru_maxrss  ) p)
             <*> (clongToW64 <$> (#peek struct rusage, ru_ixrss   ) p)
             <*> (clongToW64 <$> (#peek struct rusage, ru_idrss   ) p)
@@ -121,8 +132,8 @@ instance Storable RUsage where
             <*> (clongToW64 <$> (#peek struct rusage, ru_nivcsw  ) p)
 
     poke p RUsage{..} = do
-        (#poke struct rusage, ru_utime)    p ru_utime
-        (#poke struct rusage, ru_stime)    p ru_stime
+        (#poke struct rusage, ru_utime)    p (doubleToTimeVal ru_utime)
+        (#poke struct rusage, ru_stime)    p (doubleToTimeVal ru_stime)
         (#poke struct rusage, ru_maxrss)   p (w64ToCLong ru_maxrss)
         (#poke struct rusage, ru_ixrss)    p (w64ToCLong ru_ixrss)
         (#poke struct rusage, ru_idrss)    p (w64ToCLong ru_idrss)
