@@ -124,6 +124,7 @@ library
        Streamly.KeyValue.Type
      , Streamly.Metrics.Type
      , Streamly.Metrics.Perf
+     , Streamly.Metrics.Perf.Type
      , Streamly.Metrics.RUsage
      , Streamly.Metrics.Channel
      , Streamly.Metrics.Measure
