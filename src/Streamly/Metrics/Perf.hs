@@ -98,55 +98,64 @@ instance Num Stats where
     INFIX_OP(-)
     INFIX_OP(*)
 
--- Compatible with GHC 8.2 (base 4.10) onwards
-getStats :: IO [Stats]
-getStats = do
+getProcMetrics :: IO [Stats]
+getProcMetrics = do
     cpuPico <- getCPUTime
     let cpuSec = fromIntegral cpuPico / (10^(12 :: Int))
-        proctimes = [CPUTime cpuSec]
+    return [CPUTime cpuSec]
 
+-- Compatible with GHC 8.2 (base 4.10) onwards
+getGcMetrics :: IO [Stats]
+getGcMetrics = do
     res <- getRTSStatsEnabled
-    gcstats <-
-        if res
-        then do
-            stats <- getRTSStats
-            pure
-                [ GcAllocatedBytes (fromIntegral (allocated_bytes stats))
-                , GcCopiedBytes (fromIntegral (copied_bytes stats))
-                , GcMaxMemInUse (fromIntegral (max_mem_in_use_bytes stats))
-                ]
-        else pure []
-
-    ru <- getRUsage RUsageSelf
-    let rustats =
-            [ RuUtime    (Seconds (ru_utime ru))
-            , RuStime    (Seconds (ru_stime ru))
-            , RuMaxrss   (GaugeMax (Bytes (ru_maxrss ru)))
-            , RuIxrss    (GaugeMax (Bytes (ru_ixrss ru)))
-            , RuIdrss    (GaugeMax (Bytes (ru_idrss ru)))
-            , RuIsrss    (GaugeMax (Bytes (ru_isrss ru)))
-            , RuMinflt   (ru_minflt ru)
-            , RuMajflt   (ru_majflt ru)
-            , RuNswap    (ru_nswap ru)
-            , RuInblock  (ru_inblock ru)
-            , RuOublock  (ru_oublock ru)
-            , RuMsgsnd   (ru_msgsnd ru)
-            , RuMsgrcv   (ru_msgrcv ru)
-            , RuNsignals (ru_nsignals ru)
-            , RuNvcsw    (ru_nvcsw ru)
-            , RuNivcsw   (ru_nivcsw ru)
+    if res
+    then do
+        stats <- getRTSStats
+        pure
+            [ GcAllocatedBytes (fromIntegral (allocated_bytes stats))
+            , GcCopiedBytes (fromIntegral (copied_bytes stats))
+            , GcMaxMemInUse (fromIntegral (max_mem_in_use_bytes stats))
             ]
-    pure $ proctimes ++ gcstats ++ rustats
+    else pure []
+
+getRuMetrics :: IO [Stats]
+getRuMetrics = do
+    ru <- getRUsage RUsageSelf
+    return
+        [ RuUtime    (Seconds (ru_utime ru))
+        , RuStime    (Seconds (ru_stime ru))
+        , RuMaxrss   (GaugeMax (Bytes (ru_maxrss ru)))
+        , RuIxrss    (GaugeMax (Bytes (ru_ixrss ru)))
+        , RuIdrss    (GaugeMax (Bytes (ru_idrss ru)))
+        , RuIsrss    (GaugeMax (Bytes (ru_isrss ru)))
+        , RuMinflt   (ru_minflt ru)
+        , RuMajflt   (ru_majflt ru)
+        , RuNswap    (ru_nswap ru)
+        , RuInblock  (ru_inblock ru)
+        , RuOublock  (ru_oublock ru)
+        , RuMsgsnd   (ru_msgsnd ru)
+        , RuMsgrcv   (ru_msgrcv ru)
+        , RuNsignals (ru_nsignals ru)
+        , RuNvcsw    (ru_nvcsw ru)
+        , RuNivcsw   (ru_nivcsw ru)
+        ]
+
+getPerfMetrics :: IO [Stats]
+getPerfMetrics = do
+    procMetrics <- getProcMetrics
+    gcMetrics <- getGcMetrics
+    ruMetrics <- getRuMetrics
+    return $ procMetrics ++ gcMetrics ++ ruMetrics
 
 preRun :: IO [Stats]
 preRun = do
   performGC
-  getStats
+  getPerfMetrics
 
 postRun :: [Stats] -> IO [Stats]
 postRun stats = do
   performGC
-  stats1 <- getStats
+  stats1 <- getPerfMetrics
   return $ zipWith (-) stats1 stats
 
 benchWith :: (a -> IO b) -> a -> IO (b, [Stats])
