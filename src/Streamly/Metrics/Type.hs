@@ -33,11 +33,15 @@ module Streamly.Metrics.Type
     -- * Units
     , Seconds (..)
     , Bytes (..)
+
+    -- * Utilities
+    , showList
     )
 where
 
 import Streamly.Internal.Data.Time.Units (AbsTime)
 import Text.Printf (printf, PrintfArg)
+import Prelude hiding (showList)
 
 -------------------------------------------------------------------------------
 -- Metric semantics
@@ -182,3 +186,10 @@ instance (Show a, Num a, Ord a, PrintfArg a, Integral a) => Show (Bytes a)
         let (RelativeUnit label multiplier) = bytesConverter b
             n = fromIntegral b / fromIntegral multiplier :: Double
          in printf "%.2f" n ++ " " ++ label
+
+-------------------------------------------------------------------------------
+-- Utilities
+-------------------------------------------------------------------------------
+
+showList :: Show a => [a] -> String
+showList xs = unlines $ fmap show xs
