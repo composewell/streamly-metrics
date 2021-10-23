@@ -1,8 +1,9 @@
-module Streamly.Metrics.RUsage
+module Streamly.Metrics.Perf.RUsage
     (
       pattern RUsageSelf
     , pattern RUsageChildren
 --    , RUsageThread
+    , getRuMetrics
     , RUsage(..)
     , getRUsage
     )
@@ -15,6 +16,8 @@ import Foreign.C.Types (CInt(..), CLong)
 import Foreign.Marshal.Alloc (alloca)
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (Storable(..))
+import Streamly.Metrics.Perf.Type (PerfMetrics(..))
+import Streamly.Metrics.Type (GaugeMax(..), Seconds(..), Bytes(..))
 
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -150,6 +153,58 @@ instance Storable RUsage where
         (#poke struct rusage, ru_nivcsw)   p (w64ToCLong ru_nivcsw)
 
 -------------------------------------------------------------------------------
+-- int getrusage(int who, struct rusage *usage);
+-------------------------------------------------------------------------------
+
+-- | See "man getrusage".
+foreign import ccall unsafe "getrusage" c_getrusage ::
+    CInt -> Ptr RUsage -> IO CInt
+
+-- | "who" could be:
+-- RUsageSelf
+-- RUsageChildren
+getRuMetrics :: CInt -> IO [PerfMetrics]
+getRuMetrics who = do
+    alloca $ \p -> do
+        throwErrnoIfMinus1_ "getrusage" (c_getrusage who p)
+
+        utime <- (#peek struct rusage, ru_utime) p
+        stime <- (#peek struct rusage, ru_stime) p
+        maxrss <- (#peek struct rusage, ru_maxrss) p
+        ixrss <- (#peek struct rusage, ru_ixrss) p
+        idrss <- (#peek struct rusage, ru_idrss) p
+        isrss <- (#peek struct rusage, ru_isrss) p
+        minflt <- (#peek struct rusage, ru_minflt) p
+        majflt <- (#peek struct rusage, ru_majflt) p
+        nswap <- (#peek struct rusage, ru_nswap) p
+        inblock <- (#peek struct rusage, ru_inblock) p
+        oublock <- (#peek struct rusage, ru_oublock) p
+        msgsnd <- (#peek struct rusage, ru_msgsnd) p
+        msgrcv <- (#peek struct rusage, ru_msgrcv) p
+        nsignals <- (#peek struct rusage, ru_nsignals) p
+        nvcsw <- (#peek struct rusage, ru_nvcsw) p
+        nivcsw <- (#peek struct rusage, ru_nivcsw) p
+
+        return
+            [ RuUtime    (Seconds (timeValToDouble utime))
+            , RuStime    (Seconds (timeValToDouble stime))
+            , RuMaxrss   (GaugeMax (Bytes (1024 * clongToW64 maxrss)))
+            , RuIxrss    (GaugeMax (Bytes (1024 * clongToW64 ixrss)))
+            , RuIdrss    (GaugeMax (Bytes (1024 * clongToW64 idrss)))
+            , RuIsrss    (GaugeMax (Bytes (1024 * clongToW64 isrss)))
+            , RuMinflt   (clongToW64 minflt)
+            , RuMajflt   (clongToW64 majflt)
+            , RuNswap    (clongToW64 nswap)
+            , RuInblock  (clongToW64 inblock)
+            , RuOublock  (clongToW64 oublock)
+            , RuMsgsnd   (clongToW64 msgsnd)
+            , RuMsgrcv   (clongToW64 msgrcv)
+            , RuNsignals (clongToW64 nsignals)
+            , RuNvcsw    (clongToW64 nvcsw)
+            , RuNivcsw   (clongToW64 nivcsw)
+            ]
+
+-------------------------------------------------------------------------------
 -- data Who = RUsageSelf | RUsageChildren | RUsageThread
 -------------------------------------------------------------------------------
 
@@ -164,18 +219,9 @@ pattern RUsageThread :: CInt
 pattern RUsageThread = (#const RUSAGE_THREAD) :: CInt
 -}
 
--------------------------------------------------------------------------------
--- int getrusage(int who, struct rusage *usage);
--------------------------------------------------------------------------------
-
--- | See "man getrusage".
-foreign import ccall unsafe "getrusage" c_getrusage ::
-    CInt -> Ptr RUsage -> IO CInt
-
 -- | "who" could be:
 -- RUsageSelf
 -- RUsageChildren
--- RUsageThread
 getRUsage :: CInt -> IO RUsage
 getRUsage who =
     alloca $ \ptr -> do

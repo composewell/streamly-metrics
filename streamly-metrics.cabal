@@ -125,7 +125,7 @@ library
      , Streamly.Metrics.Type
      , Streamly.Metrics.Perf
      , Streamly.Metrics.Perf.Type
-     , Streamly.Metrics.RUsage
+     , Streamly.Metrics.Perf.RUsage
      , Streamly.Metrics.Channel
      , Streamly.Metrics.Measure
      , Streamly.Metrics.File

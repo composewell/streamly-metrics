@@ -8,8 +8,7 @@ where
 import GHC.Stats (getRTSStats, getRTSStatsEnabled, RTSStats(..))
 import Streamly.Metrics.Measure (bracketWith)
 import Streamly.Metrics.Perf.Type (PerfMetrics(..))
-import Streamly.Metrics.RUsage (RUsage(..), pattern RUsageSelf, getRUsage)
-import Streamly.Metrics.Type (GaugeMax(..), Seconds(..), Bytes(..))
+import Streamly.Metrics.Perf.RUsage (getRuMetrics, pattern RUsageSelf)
 import System.CPUTime (getCPUTime)
 import System.Mem (performGC)
 
@@ -33,33 +32,11 @@ getGcMetrics = do
             ]
     else pure []
 
-getRuMetrics :: IO [PerfMetrics]
-getRuMetrics = do
-    ru <- getRUsage RUsageSelf
-    return
-        [ RuUtime    (Seconds (ru_utime ru))
-        , RuStime    (Seconds (ru_stime ru))
-        , RuMaxrss   (GaugeMax (Bytes (ru_maxrss ru)))
-        , RuIxrss    (GaugeMax (Bytes (ru_ixrss ru)))
-        , RuIdrss    (GaugeMax (Bytes (ru_idrss ru)))
-        , RuIsrss    (GaugeMax (Bytes (ru_isrss ru)))
-        , RuMinflt   (ru_minflt ru)
-        , RuMajflt   (ru_majflt ru)
-        , RuNswap    (ru_nswap ru)
-        , RuInblock  (ru_inblock ru)
-        , RuOublock  (ru_oublock ru)
-        , RuMsgsnd   (ru_msgsnd ru)
-        , RuMsgrcv   (ru_msgrcv ru)
-        , RuNsignals (ru_nsignals ru)
-        , RuNvcsw    (ru_nvcsw ru)
-        , RuNivcsw   (ru_nivcsw ru)
-        ]
-
 getPerfMetrics :: IO [PerfMetrics]
 getPerfMetrics = do
     procMetrics <- getProcMetrics
     gcMetrics <- getGcMetrics
-    ruMetrics <- getRuMetrics
+    ruMetrics <- getRuMetrics RUsageSelf
     return $ procMetrics ++ gcMetrics ++ ruMetrics
 
 preRun :: IO [PerfMetrics]
