@@ -7,7 +7,7 @@ where
 
 import Data.Word (Word64)
 import GHC.Stats (getRTSStats, getRTSStatsEnabled, RTSStats(..))
-import Streamly.Metrics.Type (Counter(..), GaugeMax(..), Seconds, Bytes)
+import Streamly.Metrics.Type (GaugeMax(..), Seconds, Bytes)
 import Streamly.Metrics.Measure (bracketWith)
 import System.Mem (performGC)
 import System.CPUTime (getCPUTime)
@@ -15,9 +15,9 @@ import System.CPUTime (getCPUTime)
 -- Use Counter/Gauge as the outer constructor and Bytes/Seconds as the inner
 -- constuctor.
 data Stats =
-    CPUTime !(Counter (Seconds Double))
-  | GcAllocatedBytes !(Counter (Bytes Word64))
-  | GcCopiedBytes !(Counter (Bytes Word64))
+    CPUTime !(Seconds Double)
+  | GcAllocatedBytes !(Bytes Word64)
+  | GcCopiedBytes !(Bytes Word64)
   | GcMaxMemInUse !(GaugeMax (Bytes Word64))
     deriving (Show)
 
