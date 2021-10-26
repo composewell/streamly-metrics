@@ -134,13 +134,16 @@ library
     build-depends:
        base >= 4.9 && < 5
      , streamly
+     , stm
 
 test-suite basic
   import: test-options
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Main.hs
+  ghc-options: -O2 -fmax-worker-args=16 -fspec-constr-recursive=16
   build-depends:
        base >= 4.9 && < 5
      , streamly-metrics
      , streamly
+     , stm

@@ -36,6 +36,7 @@ import Streamly.Internal.Data.Time.Units (AbsTime)
 -- won't take any time. If you want to measure pure computations make sure all
 -- the inputs are supplied dynamically as funciton arguments.
 --
+{-# INLINE bracketWith #-}
 bracketWith :: Monad m => m a -> (a -> m d) -> (b -> m c) -> b -> m (c, d)
 bracketWith pre post func arg = do
     r <- pre
@@ -45,10 +46,12 @@ bracketWith pre post func arg = do
 
 -- | Like 'bracketWith' but using an action instead of a function and its
 -- argument.
+{-# INLINE bracket #-}
 bracket :: Monad m => m a -> (a -> m d) -> m c -> m (c, d)
 bracket pre post action = bracketWith pre post (const action) ()
 
 -- | Return a @()@ value as side effect every time a pure value is used.
+{-# INLINE tick #-}
 tick :: Monad m => a -> m (a, ())
 tick a = bracket (pure ()) pure (pure a)
 

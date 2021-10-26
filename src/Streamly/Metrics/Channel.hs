@@ -1,12 +1,17 @@
 module Streamly.Metrics.Channel
     (
-      send
-    , aggregateBy
-    , printChanList
+      Channel
+    , newChannel
+    , send
+    , printChannel
+    , forkChannelPrinter
     )
 where
 
-import Control.Concurrent.Chan (Chan, readChan, writeChan)
+import Control.Concurrent (forkIO, ThreadId)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TBQueue
+    (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.Bifunctor (second)
 import Data.Function ((&))
@@ -26,21 +31,25 @@ import Prelude hiding (showList)
 -- Event processing
 -------------------------------------------------------------------------------
 
-send :: MonadIO m => Chan (AbsTime, (k, v)) -> (k, v) -> m ()
-send chan kv = do
+-- | A metrics channel.
+newtype Channel a = Channel (TBQueue (AbsTime, ([Char], [a])))
+
+-- | Create a new metrics channel.
+newChannel :: IO (Channel a)
+newChannel = atomically $ do
+    tbq <- newTBQueue 1
+    return $ Channel tbq
+
+-- | Send a list of metrics to a metrics channel.
+-- @send channel description metrics@
+send :: MonadIO m => Channel a -> String -> [a] -> m ()
+send (Channel chan) desc metrics = do
     -- XXX should use asyncClock
     now <- liftIO $ getTime Monotonic
-    liftIO $ writeChan chan (now, kv)
+    liftIO $ atomically $ writeTBQueue chan (now, (desc, metrics))
 
-fromChan :: MonadAsync m => Chan a -> SerialT m a
-fromChan = Stream.repeatM . (liftIO . readChan)
-
-aggregateBy :: (MonadAsync m, Ord k, Num a) =>
-    Double -> Int -> SerialT m (AbsTime, (k, a)) -> SerialT m (k, a)
-aggregateBy timeout batchsize =
-    Stream.classifySessionsBy 0.1 False (\x -> return $ x > 1000) timeout f
-
-    where f = Fold.take batchsize Fold.sum
+fromChan :: MonadAsync m => TBQueue a -> SerialT m a
+fromChan = Stream.repeatM . (liftIO . atomically . readTBQueue)
 
 aggregateListBy :: (MonadAsync m, Ord k, Num a) =>
     Double -> Int -> SerialT m (AbsTime, (k, [a])) -> SerialT m (k, [a])
@@ -52,14 +61,22 @@ aggregateListBy timeout batchsize stream =
 
     where f = Fold.take batchsize (Fold.foldl1' (zipWith (+)))
 
-printKV :: (MonadIO m, Show k, Show a) => SerialT m (k, [a]) -> m ()
-printKV =
+printKV :: (MonadIO m, Show k, Show a) => SerialT m (k, [a]) -> m b
+printKV stream =
     let f (k, xs) = liftIO $ putStrLn $ show k ++ ":\n" ++ showList xs
-     in Stream.mapM_ f
+     in Stream.mapM_ f stream >> error "printChannel: Metrics channel closed"
 
-printChanList :: (MonadAsync m, Show k, Ord k, Show v, Num v) =>
-    Chan (AbsTime, (k, [v])) -> m ()
-printChanList chan =
+-- XXX Print actual batch size and also scale the results per event.
+
+-- | Forever print the metrics on a channel to the console periodically after
+-- aggregating the metrics collected till now.
+printChannel :: (MonadAsync m, Show a, Num a) =>
+    Channel a -> Double -> Int -> m b
+printChannel (Channel chan) timeout batchSize =
       fromChan chan
-    & aggregateListBy 1 1
+    & aggregateListBy timeout batchSize
     & printKV
+
+forkChannelPrinter :: (MonadAsync m, Show a, Num a) =>
+    Channel a -> Double -> Int -> m ThreadId
+forkChannelPrinter chan timeout = liftIO . forkIO . printChannel chan timeout
