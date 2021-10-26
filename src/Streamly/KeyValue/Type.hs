@@ -1,5 +1,3 @@
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE StandaloneDeriving #-}
 -- |
 -- Module      : Streamly.KeyValue.Type
 -- Copyright   : (c) 2021 Composewell Technologies
