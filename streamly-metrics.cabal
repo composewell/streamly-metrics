@@ -143,3 +143,4 @@ test-suite basic
   build-depends:
        base >= 4.9 && < 5
      , streamly-metrics
+     , streamly
