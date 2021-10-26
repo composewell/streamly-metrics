@@ -1,3 +1,4 @@
+import Control.Concurrent(threadDelay)
 import Streamly.Metrics.Channel (Channel, newChannel, forkChannelPrinter)
 -- import Streamly.Metrics.Channel (printChannel)
 import Streamly.Metrics.Perf (benchOnWith)
@@ -20,9 +21,10 @@ sum chan = do
 main :: IO ()
 main = do
     chan <- newChannel
-    _ <- forkChannelPrinter chan 1 1
+    _ <- forkChannelPrinter chan 10 100
     Stream.drain (Stream.replicateM 1000 (noop chan))
     Stream.drain (Stream.replicateM 1000 (sum chan))
+    threadDelay 1000000
     {-
     Stream.drain
         ((Stream.replicateM 1000 (noop chan) <> Stream.replicateM 1000 (sum chan))

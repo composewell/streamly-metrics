@@ -92,5 +92,5 @@ bench action = benchWith (const action) ()
 benchOnWith :: Channel PerfMetrics -> String -> (a -> IO b) -> a -> IO b
 benchOnWith chan desc f arg = do
     (r, xs) <- benchWith f arg
-    send chan desc xs
+    send chan desc (Count 1 : xs)
     return r

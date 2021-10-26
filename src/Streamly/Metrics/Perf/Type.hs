@@ -35,6 +35,7 @@ data PerfMetrics =
   | RuNsignals  !Word64
   | RuNvcsw     !Word64
   | RuNivcsw    !Word64
+  | Count       !Word64
     deriving (Show)
 
 #define UNARY_OP_ONE(constr,op) op (constr a) = constr (op a)
@@ -59,7 +60,8 @@ data PerfMetrics =
     UNARY_OP_ONE(RuMsgrcv,op); \
     UNARY_OP_ONE(RuNsignals,op); \
     UNARY_OP_ONE(RuNvcsw,op); \
-    UNARY_OP_ONE(RuNivcsw,op);
+    UNARY_OP_ONE(RuNivcsw,op); \
+    UNARY_OP_ONE(Count,op);
 
 #define INFIX_OP_ONE(constr,op) constr a op constr b = constr (a op b)
 #define FUNC_OP_ONE(constr,op) constr a `op` constr b = constr (a `op` b)
@@ -86,12 +88,50 @@ data PerfMetrics =
     INFIX_OP_ONE(RuNsignals,op); \
     INFIX_OP_ONE(RuNvcsw,op); \
     INFIX_OP_ONE(RuNivcsw,op); \
+    INFIX_OP_ONE(Count,op); \
     _ op _ = error "Cannot operate on different types of metrics";
 
 -- XXX Can we derive this generically?
 instance Num PerfMetrics where
+    fromInteger val = Count (fromInteger val)
     UNARY_OP(signum)
     UNARY_OP(abs)
     INFIX_OP(+)
     INFIX_OP(-)
     INFIX_OP(*)
+
+#define DIV_OP_ONE(constr) constr a / Count b = constr (a / b)
+#define DIV_DOUBLE(a,b) (a / fromIntegral b)
+#define DIV_SECONDS(constr) constr (Seconds a) / (Count b) \
+    = constr (Seconds DIV_DOUBLE(a,b))
+#define DIV_ROUND(a,b) (round (fromIntegral a / fromIntegral b :: Double))
+#define DIV_BYTES(constr) constr (Bytes a) / (Count b) \
+    = constr (Bytes DIV_ROUND(a,b))
+#define DIV_MAX_BYTES(constr) constr (GaugeMax (Bytes a)) / (Count _) = \
+    constr (GaugeMax (Bytes a))
+#define DIV_COUNT(constr) constr a / Count b = constr DIV_ROUND(a,b)
+
+instance Fractional PerfMetrics where
+    DIV_SECONDS(CPUTime)
+    DIV_SECONDS(MonotonicTime)
+    DIV_BYTES(GcAllocatedBytes)
+    DIV_BYTES(GcCopiedBytes)
+    DIV_MAX_BYTES(GcMaxMemInUse)
+    DIV_SECONDS(RuUtime)
+    DIV_SECONDS(RuStime)
+    DIV_MAX_BYTES(RuMaxrss)
+    DIV_MAX_BYTES(RuIxrss)
+    DIV_MAX_BYTES(RuIdrss)
+    DIV_MAX_BYTES(RuIsrss)
+    DIV_COUNT(RuMinflt)
+    DIV_COUNT(RuMajflt)
+    DIV_COUNT(RuNswap)
+    DIV_COUNT(RuInblock)
+    DIV_COUNT(RuOublock)
+    DIV_COUNT(RuMsgsnd)
+    DIV_COUNT(RuMsgrcv)
+    DIV_COUNT(RuNsignals)
+    DIV_COUNT(RuNvcsw)
+    DIV_COUNT(RuNivcsw)
+    Count a / Count _ = Count a
+    _ / _ = error "Undefined fractional operation on PerfMetrics"

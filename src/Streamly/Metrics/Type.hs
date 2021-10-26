@@ -1,5 +1,4 @@
 {-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE StandaloneDeriving #-}
 -- |
 -- Module      : Streamly.Metrics.Type
 -- Copyright   : (c) 2021 Composewell Technologies
@@ -110,6 +109,7 @@ instance (Num a, Ord a) => Num (GaugeMax a) where
     signum (GaugeMax a) = GaugeMax (signum a)
     (GaugeMax a) * (GaugeMax b) = GaugeMax (a * b)
 
+    -- XXX Abusing Num instance, we can use a separate type class
     -- For a GaugeMax these are defined as maximum of the two values
     (GaugeMax a) - (GaugeMax b) = GaugeMax (max a b)
     (GaugeMax a) + (GaugeMax b) = GaugeMax (max a b)
@@ -176,7 +176,7 @@ bytesConverter k
     | k >= 2^(10 :: Int) = RelativeUnit "KiB" (2^(10 :: Int))
     | otherwise          = RelativeUnit "Bytes" 1
 
-newtype Bytes a = Bytes a deriving (Num, Eq, Ord)
+newtype Bytes a = Bytes a deriving (Num, Eq, Ord, Fractional)
 
 instance (Show a, Num a, Ord a, PrintfArg a, Integral a) => Show (Bytes a)
 

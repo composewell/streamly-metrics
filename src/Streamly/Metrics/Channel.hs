@@ -51,7 +51,7 @@ send (Channel chan) desc metrics = do
 fromChan :: MonadAsync m => TBQueue a -> SerialT m a
 fromChan = Stream.repeatM . (liftIO . atomically . readTBQueue)
 
-aggregateListBy :: (MonadAsync m, Ord k, Num a) =>
+aggregateListBy :: (MonadAsync m, Ord k, Fractional a) =>
     Double -> Int -> SerialT m (AbsTime, (k, [a])) -> SerialT m (k, [a])
 aggregateListBy timeout batchsize stream =
     fmap (second fromJust)
@@ -59,7 +59,16 @@ aggregateListBy timeout batchsize stream =
         $ Stream.classifySessionsBy
             0.1 False (return . (> 1000)) timeout f stream
 
-    where f = Fold.take batchsize (Fold.foldl1' (zipWith (+)))
+    where
+
+    scale Nothing _ = Nothing
+    scale (Just xs) count = Just $ map (/ count) xs
+
+    f =
+        Fold.teeWithFst
+            scale
+            (Fold.take batchsize (Fold.foldl1' (zipWith (+))))
+            (Fold.lmap (const 1) Fold.sum)
 
 printKV :: (MonadIO m, Show k, Show a) => SerialT m (k, [a]) -> m b
 printKV stream =
@@ -70,13 +79,13 @@ printKV stream =
 
 -- | Forever print the metrics on a channel to the console periodically after
 -- aggregating the metrics collected till now.
-printChannel :: (MonadAsync m, Show a, Num a) =>
+printChannel :: (MonadAsync m, Show a, Fractional a) =>
     Channel a -> Double -> Int -> m b
 printChannel (Channel chan) timeout batchSize =
       fromChan chan
     & aggregateListBy timeout batchSize
     & printKV
 
-forkChannelPrinter :: (MonadAsync m, Show a, Num a) =>
+forkChannelPrinter :: (MonadAsync m, Show a, Fractional a) =>
     Channel a -> Double -> Int -> m ThreadId
 forkChannelPrinter chan timeout = liftIO . forkIO . printChannel chan timeout
