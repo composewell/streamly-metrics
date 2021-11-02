@@ -3,6 +3,8 @@ module Streamly.Metrics.Perf
       benchWith
     , bench
     , benchOnWith
+    , preRun
+    , postRun
     )
 where
 
