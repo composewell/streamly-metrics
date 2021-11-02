@@ -1,7 +1,7 @@
 import Control.Concurrent(threadDelay)
-import Streamly.Metrics.Channel (Channel, newChannel, forkChannelPrinter)
+import Streamly.Metrics.Channel
+    (Channel, newChannel, forkChannelPrinter, benchOnWith)
 -- import Streamly.Metrics.Channel (printChannel)
-import Streamly.Metrics.Perf (benchOnWith)
 import Streamly.Metrics.Perf.Type (PerfMetrics)
 
 import qualified Streamly.Prelude as Stream
