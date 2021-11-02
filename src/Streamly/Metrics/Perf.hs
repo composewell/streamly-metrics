@@ -3,8 +3,6 @@ module Streamly.Metrics.Perf
       PerfMetrics(..)
     , benchWith
     , bench
-    , benchOnWith
-    , benchOn
     , preRun
     , postRun
     )
@@ -14,7 +12,6 @@ import Control.Monad (unless)
 import Data.Maybe (catMaybes)
 import GHC.Stats (getRTSStats, getRTSStatsEnabled, RTSStats(..))
 import Streamly.Internal.Data.Time.Units (NanoSecond64, fromAbsTime)
-import Streamly.Metrics.Channel (Channel, send)
 import Streamly.Metrics.Measure (measureWith)
 import Streamly.Metrics.Perf.Type (PerfMetrics(..), checkMonotony)
 import Streamly.Metrics.Perf.RUsage (getRuMetrics, pattern RUsageSelf)
@@ -121,16 +118,3 @@ benchWith = measureWith preRun postRun
 -- | Like 'benchWith' but benchmark an action instead.
 bench :: IO a -> IO (a, [PerfMetrics])
 bench action = benchWith (const action) ()
-
--- | Benchmark a function application and the send the results to the specified
--- metrics channel.
-benchOnWith :: Channel PerfMetrics -> String -> (a -> IO b) -> a -> IO b
-benchOnWith chan desc f arg = do
-    (r, xs) <- benchWith f arg
-    send chan desc (Count 1 : xs)
-    return r
-
--- | Like 'benchOnWith' but benchmark an action instead of function
--- application.
-benchOn :: Channel PerfMetrics -> String -> IO b -> IO b
-benchOn chan desc f = benchOnWith chan desc (const f) ()
