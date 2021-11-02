@@ -133,7 +133,7 @@ library
 
     build-depends:
        base >= 4.9 && < 5
-     , streamly
+     , streamly >= 0.8.0
      , stm
 
 test-suite basic
@@ -145,5 +145,5 @@ test-suite basic
   build-depends:
        base >= 4.9 && < 5
      , streamly-metrics
-     , streamly
+     , streamly >= 0.8.0
      , stm
