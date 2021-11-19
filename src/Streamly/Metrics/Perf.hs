@@ -9,26 +9,29 @@ module Streamly.Metrics.Perf
 where
 
 import GHC.Stats (getRTSStats, getRTSStatsEnabled, RTSStats(..))
-import Streamly.Internal.Data.Time.Clock
-    (getTime, Clock (Monotonic, ProcessCPUTime))
 import Streamly.Internal.Data.Time.Units (NanoSecond64, fromAbsTime)
 import Streamly.Metrics.Channel (Channel, send)
-import Streamly.Metrics.Measure (bracketWith)
+import Streamly.Metrics.Measure (measureWith)
 import Streamly.Metrics.Perf.Type (PerfMetrics(..))
 import Streamly.Metrics.Perf.RUsage (getRuMetrics, pattern RUsageSelf)
 import System.Mem (performGC)
 
+import qualified Streamly.Internal.Data.Time.Clock as Clock
+
 {-# INLINE getProcMetrics #-}
 getProcMetrics :: IO [PerfMetrics]
 getProcMetrics = do
-    time <- getTime Monotonic
-    cpu <- getTime ProcessCPUTime
+    time <- Clock.getTime Clock.Monotonic
+    tcpu <- Clock.getTime Clock.ThreadCPUTime
+    pcpu <- Clock.getTime Clock.ProcessCPUTime
 
-    let cpuSec = fromIntegral (fromAbsTime cpu :: NanoSecond64) * 1e-9
+    let tcpuSec = fromIntegral (fromAbsTime tcpu :: NanoSecond64) * 1e-9
+    let pcpuSec = fromIntegral (fromAbsTime pcpu :: NanoSecond64) * 1e-9
     let timeSec = fromIntegral (fromAbsTime time :: NanoSecond64) * 1e-9
     return
-        [ CPUTime cpuSec
-        , MonotonicTime timeSec
+        [ MonotonicTime timeSec
+        , ProcessCPUTime pcpuSec
+        , ThreadCPUTime tcpuSec
         ]
 
 -- Compatible with GHC 8.2 (base 4.10) onwards
@@ -83,7 +86,7 @@ postRun stats = do
 -- | Benchmark a function application returning the function output and the
 -- performance metrics.
 benchWith :: (a -> IO b) -> a -> IO (b, [PerfMetrics])
-benchWith = bracketWith preRun postRun
+benchWith = measureWith preRun postRun
 
 -- | Like 'benchWith' but benchmark an action instead.
 bench :: IO a -> IO (a, [PerfMetrics])

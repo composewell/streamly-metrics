@@ -10,8 +10,9 @@ import Streamly.Metrics.Type (GaugeMax(..), Seconds(..), Bytes(..))
 -- Use Counter/Gauge as the outer constructor and Bytes/Seconds as the inner
 -- constuctor.
 data PerfMetrics =
-    CPUTime !(Seconds Double)
-  | MonotonicTime !(Seconds Double)
+    MonotonicTime !(Seconds Double)
+  | ProcessCPUTime !(Seconds Double)
+  | ThreadCPUTime !(Seconds Double)
 
     -- GC Stats
   | GcAllocatedBytes !(Bytes Word64)
@@ -40,8 +41,9 @@ data PerfMetrics =
 
 #define UNARY_OP_ONE(constr,op) op (constr a) = constr (op a)
 #define UNARY_OP(op) \
-    UNARY_OP_ONE(CPUTime,op); \
     UNARY_OP_ONE(MonotonicTime,op); \
+    UNARY_OP_ONE(ProcessCPUTime,op); \
+    UNARY_OP_ONE(ThreadCPUTime,op); \
     UNARY_OP_ONE(GcAllocatedBytes,op); \
     UNARY_OP_ONE(GcCopiedBytes,op); \
     UNARY_OP_ONE(GcMaxMemInUse,op); \
@@ -67,8 +69,9 @@ data PerfMetrics =
 #define FUNC_OP_ONE(constr,op) constr a `op` constr b = constr (a `op` b)
 
 #define INFIX_OP(op) \
-    INFIX_OP_ONE(CPUTime,op); \
     INFIX_OP_ONE(MonotonicTime,op); \
+    INFIX_OP_ONE(ProcessCPUTime,op); \
+    INFIX_OP_ONE(ThreadCPUTime,op); \
     INFIX_OP_ONE(GcAllocatedBytes,op); \
     INFIX_OP_ONE(GcCopiedBytes,op); \
     INFIX_OP_ONE(GcMaxMemInUse,op); \
@@ -112,8 +115,9 @@ instance Num PerfMetrics where
 #define DIV_COUNT(constr) constr a / Count b = constr DIV_ROUND(a,b)
 
 instance Fractional PerfMetrics where
-    DIV_SECONDS(CPUTime)
     DIV_SECONDS(MonotonicTime)
+    DIV_SECONDS(ProcessCPUTime)
+    DIV_SECONDS(ThreadCPUTime)
     DIV_BYTES(GcAllocatedBytes)
     DIV_BYTES(GcCopiedBytes)
     DIV_MAX_BYTES(GcMaxMemInUse)
