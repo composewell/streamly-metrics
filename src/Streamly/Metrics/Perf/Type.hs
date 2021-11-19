@@ -18,6 +18,12 @@ data PerfMetrics =
   | GcAllocatedBytes !(Bytes Word64)
   | GcCopiedBytes !(Bytes Word64)
   | GcMaxMemInUse !(GaugeMax (Bytes Word64))
+  | GcMutatorCpuTime !(Seconds Double)
+  | GcMutatorElapsedTime !(Seconds Double)
+  | GcGcCpuTime !(Seconds Double)
+  | GcGcElapsedTime !(Seconds Double)
+  | GcCpuTime !(Seconds Double)
+  | GcElapsedTime !(Seconds Double)
 
     -- rusage Stats
   | RuUtime     !(Seconds Double)
@@ -47,6 +53,12 @@ data PerfMetrics =
     UNARY_OP_ONE(GcAllocatedBytes,op); \
     UNARY_OP_ONE(GcCopiedBytes,op); \
     UNARY_OP_ONE(GcMaxMemInUse,op); \
+    UNARY_OP_ONE(GcMutatorCpuTime,op); \
+    UNARY_OP_ONE(GcMutatorElapsedTime,op); \
+    UNARY_OP_ONE(GcGcCpuTime,op); \
+    UNARY_OP_ONE(GcGcElapsedTime,op); \
+    UNARY_OP_ONE(GcCpuTime,op); \
+    UNARY_OP_ONE(GcElapsedTime,op); \
     UNARY_OP_ONE(RuUtime,op); \
     UNARY_OP_ONE(RuStime,op); \
     UNARY_OP_ONE(RuMaxrss,op); \
@@ -75,6 +87,12 @@ data PerfMetrics =
     INFIX_OP_ONE(GcAllocatedBytes,op); \
     INFIX_OP_ONE(GcCopiedBytes,op); \
     INFIX_OP_ONE(GcMaxMemInUse,op); \
+    INFIX_OP_ONE(GcMutatorCpuTime,op); \
+    INFIX_OP_ONE(GcMutatorElapsedTime,op); \
+    INFIX_OP_ONE(GcGcCpuTime,op); \
+    INFIX_OP_ONE(GcGcElapsedTime,op); \
+    INFIX_OP_ONE(GcCpuTime,op); \
+    INFIX_OP_ONE(GcElapsedTime,op); \
     INFIX_OP_ONE(RuUtime,op); \
     INFIX_OP_ONE(RuStime,op); \
     INFIX_OP_ONE(RuMaxrss,op); \
@@ -118,6 +136,12 @@ instance Fractional PerfMetrics where
     DIV_SECONDS(MonotonicTime)
     DIV_SECONDS(ProcessCPUTime)
     DIV_SECONDS(ThreadCPUTime)
+    DIV_SECONDS(GcMutatorCpuTime)
+    DIV_SECONDS(GcMutatorElapsedTime)
+    DIV_SECONDS(GcGcCpuTime)
+    DIV_SECONDS(GcGcElapsedTime)
+    DIV_SECONDS(GcCpuTime)
+    DIV_SECONDS(GcElapsedTime)
     DIV_BYTES(GcAllocatedBytes)
     DIV_BYTES(GcCopiedBytes)
     DIV_MAX_BYTES(GcMaxMemInUse)
