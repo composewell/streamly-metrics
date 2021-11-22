@@ -9,23 +9,45 @@ import Streamly.Metrics.Type (GaugeMax(..), Seconds(..), Bytes(..))
 
 -- Use Counter/Gauge as the outer constructor and Bytes/Seconds as the inner
 -- constuctor.
+--
+-- The order is important, related stats are grouped/sorted in that order for
+-- presentation purposes.
 data PerfMetrics =
+  -- | MonotonicTime and GcElapsedTime both should provide the same figures.
     MonotonicTime !(Seconds Double)
+  -- | In a single threaded system with unbound threads 'ProcessCPUTime',
+  -- 'ThreadCPUTime', ('RuUtime' + 'RuStime) and 'GcCpuTime' would be the same.
+  -- Note that a binary built with `-threaded` and using `-N1` RTS options is
+  -- not the same as single threaded because the GC thread may still run in a
+  -- separate OS thread.
+  --
+  -- Note that if the perf stats measurement pre and post calls straddle over a
+  -- blocking Haskell thread then the stats may include cpuTime for all other
+  -- threads that might have run until our post call stats collection occurs.
+  -- So it may not reflect the accurate measurement of perf stats of the call
+  -- in question.
+  --
   | ProcessCPUTime !(Seconds Double)
   | ThreadCPUTime !(Seconds Double)
 
-    -- GC Stats
+    -- GC Memory Stats
+  | GcElapsedTime !(Seconds Double)
+      -- | 'GcMutatorElapsedTime' and 'GcGcElapsedTime' should add up to
+      -- 'GcElapsedTime'.
+      | GcMutatorElapsedTime !(Seconds Double)
+      | GcGcElapsedTime !(Seconds Double)
+
+  | GcCpuTime !(Seconds Double)
+      -- | 'GcMutatorCpuTime' and 'GcGcCpuTime' should add up to 'GcCpuTime'.
+      | GcMutatorCpuTime !(Seconds Double)
+      | GcGcCpuTime !(Seconds Double)
+
   | GcAllocatedBytes !(Bytes Word64)
   | GcCopiedBytes !(Bytes Word64)
   | GcMaxMemInUse !(GaugeMax (Bytes Word64))
-  | GcMutatorCpuTime !(Seconds Double)
-  | GcMutatorElapsedTime !(Seconds Double)
-  | GcGcCpuTime !(Seconds Double)
-  | GcGcElapsedTime !(Seconds Double)
-  | GcCpuTime !(Seconds Double)
-  | GcElapsedTime !(Seconds Double)
 
     -- rusage Stats
+    -- | 'RuUtime' and 'RuStime' should add up to 'ProcessCPUTime'.
   | RuUtime     !(Seconds Double)
   | RuStime     !(Seconds Double)
   | RuMaxrss    !(GaugeMax (Bytes Word64))
