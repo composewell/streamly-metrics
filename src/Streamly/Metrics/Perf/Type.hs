@@ -51,6 +51,9 @@ data PerfMetrics =
 
   | GcAllocatedBytes !(Bytes Word64)
   | GcCopiedBytes !(Bytes Word64)
+  | GcMaxLiveBytes !(GaugeMax (Bytes Word64))
+      | GcMaxLargeObjectBytes !(GaugeMax (Bytes Word64))
+      | GcMaxCompactBytes !(GaugeMax (Bytes Word64))
   | GcMaxMemInUse !(GaugeMax (Bytes Word64))
 
     -- rusage Stats
@@ -81,6 +84,9 @@ data PerfMetrics =
     UNARY_OP_ONE(ThreadCPUTime,op); \
     UNARY_OP_ONE(GcAllocatedBytes,op); \
     UNARY_OP_ONE(GcCopiedBytes,op); \
+    UNARY_OP_ONE(GcMaxLiveBytes,op); \
+    UNARY_OP_ONE(GcMaxLargeObjectBytes,op); \
+    UNARY_OP_ONE(GcMaxCompactBytes,op); \
     UNARY_OP_ONE(GcMaxMemInUse,op); \
     UNARY_OP_ONE(GcMutatorCpuTime,op); \
     UNARY_OP_ONE(GcMutatorElapsedTime,op); \
@@ -115,6 +121,9 @@ data PerfMetrics =
     INFIX_OP_ONE(ThreadCPUTime,op); \
     INFIX_OP_ONE(GcAllocatedBytes,op); \
     INFIX_OP_ONE(GcCopiedBytes,op); \
+    INFIX_OP_ONE(GcMaxLiveBytes,op); \
+    INFIX_OP_ONE(GcMaxLargeObjectBytes,op); \
+    INFIX_OP_ONE(GcMaxCompactBytes,op); \
     INFIX_OP_ONE(GcMaxMemInUse,op); \
     INFIX_OP_ONE(GcMutatorCpuTime,op); \
     INFIX_OP_ONE(GcMutatorElapsedTime,op); \
@@ -173,6 +182,9 @@ instance Fractional PerfMetrics where
     DIV_SECONDS(GcElapsedTime)
     DIV_BYTES(GcAllocatedBytes)
     DIV_BYTES(GcCopiedBytes)
+    DIV_MAX_BYTES(GcMaxLiveBytes)
+    DIV_MAX_BYTES(GcMaxLargeObjectBytes)
+    DIV_MAX_BYTES(GcMaxCompactBytes)
     DIV_MAX_BYTES(GcMaxMemInUse)
     DIV_SECONDS(RuUtime)
     DIV_SECONDS(RuStime)
@@ -210,6 +222,9 @@ instance Indexable PerfMetrics where
 
     getIndex (GcAllocatedBytes _) = 12
     getIndex (GcCopiedBytes _) = 13
+    getIndex (GcMaxLiveBytes _) = 14
+    getIndex (GcMaxLargeObjectBytes _) = 14
+    getIndex (GcMaxCompactBytes _) = 14
     getIndex (GcMaxMemInUse _) = 14
     getIndex (RuMaxrss    _) = 15
     getIndex (RuIxrss     _) = 16

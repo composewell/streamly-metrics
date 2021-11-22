@@ -45,6 +45,9 @@ getGcMetrics = do
         pure
             [ GcAllocatedBytes (fromIntegral (allocated_bytes stats))
             , GcCopiedBytes (fromIntegral (copied_bytes stats))
+            , GcMaxLiveBytes (fromIntegral (max_live_bytes stats))
+            , GcMaxLargeObjectBytes (fromIntegral (max_large_objects_bytes stats))
+            , GcMaxCompactBytes (fromIntegral (max_compact_bytes stats))
             , GcMaxMemInUse (fromIntegral (max_mem_in_use_bytes stats))
             , GcMutatorCpuTime (fromIntegral (mutator_cpu_ns stats) / 1e9)
             , GcMutatorElapsedTime
