@@ -18,7 +18,7 @@ import Data.Function ((&))
 import Data.Maybe (fromJust, isJust)
 import Streamly.Internal.Data.Time.Clock (getTime, Clock (Monotonic))
 import Streamly.Internal.Data.Time.Units (AbsTime)
-import Streamly.Metrics.Type (showList)
+import Streamly.Metrics.Type (showList, Indexable)
 import Streamly.Prelude (SerialT, MonadAsync)
 
 import qualified Streamly.Data.Fold as Fold
@@ -70,7 +70,8 @@ aggregateListBy timeout batchsize stream =
             (Fold.take batchsize (Fold.foldl1' (zipWith (+))))
             (Fold.lmap (const 1) Fold.sum)
 
-printKV :: (MonadIO m, Show k, Show a) => SerialT m (k, [a]) -> m b
+printKV :: (MonadIO m, Show k, Show a, Indexable a) =>
+    SerialT m (k, [a]) -> m b
 printKV stream =
     let f (k, xs) = liftIO $ putStrLn $ show k ++ ":\n" ++ showList xs
      in Stream.mapM_ f stream >> error "printChannel: Metrics channel closed"
@@ -79,13 +80,13 @@ printKV stream =
 
 -- | Forever print the metrics on a channel to the console periodically after
 -- aggregating the metrics collected till now.
-printChannel :: (MonadAsync m, Show a, Fractional a) =>
+printChannel :: (MonadAsync m, Show a, Fractional a, Indexable a) =>
     Channel a -> Double -> Int -> m b
 printChannel (Channel chan) timeout batchSize =
       fromChan chan
     & aggregateListBy timeout batchSize
     & printKV
 
-forkChannelPrinter :: (MonadAsync m, Show a, Fractional a) =>
+forkChannelPrinter :: (MonadAsync m, Show a, Fractional a, Indexable a) =>
     Channel a -> Double -> Int -> m ThreadId
 forkChannelPrinter chan timeout = liftIO . forkIO . printChannel chan timeout

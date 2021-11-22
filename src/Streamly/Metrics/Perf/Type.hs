@@ -5,7 +5,8 @@ module Streamly.Metrics.Perf.Type
 where
 
 import Data.Word (Word64)
-import Streamly.Metrics.Type (GaugeMax(..), Seconds(..), Bytes(..))
+import Streamly.Metrics.Type
+    (GaugeMax(..), Seconds(..), Bytes(..), Indexable(..))
 
 -- Use Counter/Gauge as the outer constructor and Bytes/Seconds as the inner
 -- constuctor.
@@ -15,6 +16,8 @@ import Streamly.Metrics.Type (GaugeMax(..), Seconds(..), Bytes(..))
 data PerfMetrics =
   -- | MonotonicTime and GcElapsedTime both should provide the same figures.
     MonotonicTime !(Seconds Double)
+    -- XXX Make this hierarchical (include rusage data)
+    -- data ProcessCPUTime = total user system
   -- | In a single threaded system with unbound threads 'ProcessCPUTime',
   -- 'ThreadCPUTime', ('RuUtime' + 'RuStime) and 'GcCpuTime' would be the same.
   -- Note that a binary built with `-threaded` and using `-N1` RTS options is
@@ -30,6 +33,8 @@ data PerfMetrics =
   | ProcessCPUTime !(Seconds Double)
   | ThreadCPUTime !(Seconds Double)
 
+    -- XXX Make this hierarchical
+    -- data ElapsedTime = ElapsedTime total mutator gc
     -- GC Memory Stats
   | GcElapsedTime !(Seconds Double)
       -- | 'GcMutatorElapsedTime' and 'GcGcElapsedTime' should add up to
@@ -37,6 +42,8 @@ data PerfMetrics =
       | GcMutatorElapsedTime !(Seconds Double)
       | GcGcElapsedTime !(Seconds Double)
 
+    -- XXX Make this hierarchical
+    -- data CPUTime = total mutator gc
   | GcCpuTime !(Seconds Double)
       -- | 'GcMutatorCpuTime' and 'GcGcCpuTime' should add up to 'GcCpuTime'.
       | GcMutatorCpuTime !(Seconds Double)
@@ -185,3 +192,36 @@ instance Fractional PerfMetrics where
     DIV_COUNT(RuNivcsw)
     Count a / Count _ = Count a
     _ / _ = error "Undefined fractional operation on PerfMetrics"
+
+instance Indexable PerfMetrics where
+    getIndex (Count _) = 0
+    getIndex (MonotonicTime _) = 1
+    getIndex (GcElapsedTime _) = 2
+    getIndex (GcMutatorElapsedTime _) = 3
+    getIndex (GcGcElapsedTime _) = 4
+
+    getIndex (ProcessCPUTime _) = 5
+    getIndex (RuUtime _) = 6
+    getIndex (RuStime _) = 7
+    getIndex (ThreadCPUTime _) = 8
+    getIndex (GcCpuTime _) = 9
+    getIndex (GcMutatorCpuTime _) = 10
+    getIndex (GcGcCpuTime _) = 11
+
+    getIndex (GcAllocatedBytes _) = 12
+    getIndex (GcCopiedBytes _) = 13
+    getIndex (GcMaxMemInUse _) = 14
+    getIndex (RuMaxrss    _) = 15
+    getIndex (RuIxrss     _) = 16
+    getIndex (RuIdrss     _) = 17
+    getIndex (RuIsrss     _) = 18
+    getIndex (RuMinflt    _) = 19
+    getIndex (RuMajflt    _) = 20
+    getIndex (RuNswap     _) = 21
+    getIndex (RuInblock   _) = 22
+    getIndex (RuOublock   _) = 23
+    getIndex (RuMsgsnd    _) = 24
+    getIndex (RuMsgrcv    _) = 25
+    getIndex (RuNsignals  _) = 26
+    getIndex (RuNvcsw     _) = 27
+    getIndex (RuNivcsw    _) = 28

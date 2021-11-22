@@ -34,10 +34,12 @@ module Streamly.Metrics.Type
     , Bytes (..)
 
     -- * Utilities
+    , Indexable(..)
     , showList
     )
 where
 
+import Data.List (sortBy)
 import Streamly.Internal.Data.Time.Units (AbsTime)
 import Text.Printf (printf, PrintfArg)
 import Prelude hiding (showList)
@@ -193,5 +195,14 @@ instance (Show a, Num a, Ord a, PrintfArg a, Integral a) => Show (Bytes a)
 -- Utilities
 -------------------------------------------------------------------------------
 
-showList :: Show a => [a] -> String
-showList xs = unlines $ fmap show xs
+-- Give indices to different values of the type 'a'
+class Indexable a where
+    getIndex :: a -> Int
+
+-- Show a list of values of an Indexable type sorted in ascending index order
+showList :: (Show a, Indexable a) => [a] -> String
+showList xs = unlines $ show <$> sortBy f xs
+
+    where
+
+    f p1 p2 = compare (getIndex p1) (getIndex p2)
