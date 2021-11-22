@@ -145,6 +145,8 @@ data Timestamped a = Timestamped AbsTime a    -- XXX use a tuple and derive Ord?
 -- Units
 -------------------------------------------------------------------------------
 
+-- XXX Use the common time units code from streamly instead.
+--
 -- | Describe a relative unit i.e. a unit in terms of another unit. A relative
 -- unit has a label and a ratio which when multiplied with the unit gives us
 -- the other unit. For example, if the known time unit is seconds, we can
