@@ -68,6 +68,8 @@ getPerfMetrics = do
 {-# INLINE preRun #-}
 preRun :: IO [PerfMetrics]
 preRun = do
+  -- XXX If we have nested perf measurement calls then it is a bad idea to
+  -- perfromGC
   performGC
   getPerfMetrics
 
