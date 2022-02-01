@@ -40,7 +40,9 @@ import Streamly.Internal.Data.Time.Units (AbsTime)
 measureWith :: Monad m => m a -> (a -> m d) -> (b -> m c) -> b -> m (c, d)
 measureWith pre post func arg = do
     r <- pre
-    v <- func arg
+    -- When using in pure code with unsafePerformIO forcing the return value
+    -- could be useful.
+    !v <- func arg
     r1 <- post r
     return (v, r1)
 
