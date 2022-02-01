@@ -8,13 +8,15 @@ module Streamly.Metrics.Perf
     )
 where
 
+import Control.Monad (unless)
+import Data.Maybe (catMaybes)
 import GHC.Stats (getRTSStats, getRTSStatsEnabled, RTSStats(..))
 import Streamly.Internal.Data.Time.Units (NanoSecond64, fromAbsTime)
 import Streamly.Metrics.Channel (Channel, send)
 import Streamly.Metrics.Measure (measureWith)
-import Streamly.Metrics.Perf.Type (PerfMetrics(..))
+import Streamly.Metrics.Perf.Type (PerfMetrics(..), checkMonotony)
 import Streamly.Metrics.Perf.RUsage (getRuMetrics, pattern RUsageSelf)
-import System.Mem (performGC)
+import Text.Show.Pretty (ppShow)
 
 import qualified Streamly.Internal.Data.Time.Clock as Clock
 
@@ -71,29 +73,44 @@ getPerfMetrics = do
 {-# INLINE preRun #-}
 preRun :: IO [PerfMetrics]
 preRun = do
-  -- XXX If we have nested perf measurement calls then it is a bad idea to
-  -- perfromGC
-  performGC
-  getPerfMetrics
+      -- XXX If we have nested perf measurement calls then it is a bad idea to
+      -- perform GC.
+      -- performGC
+      getPerfMetrics
 
 {-# INLINE postRun #-}
 postRun :: [PerfMetrics] -> IO [PerfMetrics]
 postRun stats = do
-  -- We should not leave garbage behind. Any GC work is part of the function
-  -- being benchmarked. We start with no garbage before we start measuring and
-  -- we leave no garbage behind. However, this also adds a constant overhead of
-  -- GC which would otherwise be lesser if we do not perform GC too often.
-  -- So this may show inflated cpu times but the numbers would be consistent
-  -- across iterations.
-  --
-  -- XXX We can have this as an option.
-  -- XXX The allocations and cycles consumed by the measuring functions also
-  -- add to the benchmark stats. We could run a dummy function and measure the
-  -- overhead and deduct that overhead. However, this is pretty small and
-  -- should not matter when benchmarking large functions.
-  -- performGC
-  stats1 <- getPerfMetrics
-  return $ zipWith (-) stats1 stats
+      -- We should not leave garbage behind. Any GC work is part of the
+      -- function being benchmarked. We start with no garbage before we start
+      -- measuring and we leave no garbage behind. However, this also adds a
+      -- constant overhead of GC which would otherwise be lesser if we do not
+      -- perform GC too often.  So this may show inflated cpu times but the
+      -- numbers would be consistent across iterations.
+      --
+      -- XXX We can have this as an option.
+      -- XXX The allocations and cycles consumed by the measuring functions
+      -- also add to the benchmark stats. We could run a dummy function and
+      -- measure the overhead and deduct that overhead. However, this is pretty
+      -- small and should not matter when benchmarking large functions.
+      -- performGC
+      stats1 <- getPerfMetrics
+      let diff = zipWith (-) stats1 stats
+          r =
+                catMaybes
+                    $ zipWith (\old new ->
+                        if checkMonotony old new
+                        then Nothing
+                        else Just (new, old)) stats stats1
+      unless (null r) $ do
+          putStrLn "Warning: perf stat diff validation failed. "
+          putStrLn "(New, old) ="
+          putStrLn $ ppShow r
+          putStrLn "New ="
+          putStrLn $ ppShow stats1
+          putStrLn "Old ="
+          putStrLn $ ppShow stats
+      return diff
 
 -- | Benchmark a function application returning the function output and the
 -- performance metrics.

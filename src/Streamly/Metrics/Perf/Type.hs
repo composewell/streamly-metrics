@@ -1,6 +1,7 @@
 module Streamly.Metrics.Perf.Type
     (
       PerfMetrics (..)
+    , checkMonotony
     )
 where
 
@@ -46,6 +47,8 @@ data PerfMetrics =
     -- data CPUTime = total mutator gc
   | GcCpuTime !(Seconds Double)
       -- | 'GcMutatorCpuTime' and 'GcGcCpuTime' should add up to 'GcCpuTime'.
+      -- XXX Note that GHC measures GcCputTime to be just the utime using
+      -- rusage, it should be utime + stime to match PROCESS_CPU_TIME clock.
       | GcMutatorCpuTime !(Seconds Double)
       | GcGcCpuTime !(Seconds Double)
 
@@ -148,7 +151,21 @@ data PerfMetrics =
     INFIX_OP_ONE(RuNvcsw,op); \
     INFIX_OP_ONE(RuNivcsw,op); \
     INFIX_OP_ONE(Count,op); \
-    _ op _ = error "Cannot operate on different types of metrics";
+    x1 op x2 = error $ "Cannot operate on different types of metrics" \
+        ++ show x1 ++ " / " ++ show x2;
+
+checkMonotony :: PerfMetrics -> PerfMetrics -> Bool
+-- XXX can we just use >= on Perfmetrics?
+checkMonotony (MonotonicTime t1) (MonotonicTime t2) = t2 >= t1
+checkMonotony (ProcessCPUTime t1) (ProcessCPUTime t2) = t2 >= t1
+checkMonotony (ThreadCPUTime t1) (ThreadCPUTime t2) = t2 >= t1
+checkMonotony (GcElapsedTime t1) (GcElapsedTime t2) = t2 >= t1
+checkMonotony (GcMutatorElapsedTime t1) (GcMutatorElapsedTime t2) = t2 >= t1
+checkMonotony (GcGcElapsedTime t1) (GcGcElapsedTime t2) = t2 >= t1
+checkMonotony (GcCpuTime t1) (GcCpuTime t2) = t2 >= t1
+checkMonotony (GcMutatorCpuTime t1) (GcMutatorCpuTime t2) = t2 >= t1
+checkMonotony (GcGcCpuTime t1) (GcGcCpuTime t2) = t2 >= t1
+checkMonotony _ _ = True
 
 -- XXX Can we derive this generically?
 instance Num PerfMetrics where
@@ -203,7 +220,10 @@ instance Fractional PerfMetrics where
     DIV_COUNT(RuNvcsw)
     DIV_COUNT(RuNivcsw)
     Count a / Count _ = Count a
-    _ / _ = error "Undefined fractional operation on PerfMetrics"
+    x1 / x2 =
+        error
+            $ "Undefined fractional operation on PerfMetrics "
+                ++ show x1 ++ " / " ++ show x2
 
 instance Indexable PerfMetrics where
     getIndex (Count _) = 0

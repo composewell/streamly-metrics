@@ -164,7 +164,7 @@ secondsConverter k
     | k >= 1e-6  = RelativeUnit "μs" 1e6
     | otherwise  = RelativeUnit "ns" 1e9
 
-newtype Seconds a = Seconds a deriving (Num, Fractional)
+newtype Seconds a = Seconds a deriving (Num, Fractional, Eq, Ord)
 
 instance (Show a, Ord a, Fractional a, PrintfArg a) => Show (Seconds a) where
     show (Seconds t) =

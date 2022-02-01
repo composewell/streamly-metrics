@@ -133,6 +133,7 @@ library
 
     build-depends:
        base >= 4.9 && < 5
+     , pretty-show >= 1.10 && < 1.11
      , streamly >= 0.8.0
      , stm
 
