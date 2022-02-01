@@ -1,8 +1,10 @@
 module Streamly.Metrics.Perf
     (
-      benchWith
+      PerfMetrics(..)
+    , benchWith
     , bench
     , benchOnWith
+    , benchOn
     , preRun
     , postRun
     )
@@ -64,7 +66,6 @@ getGcMetrics = do
 {-# INLINE getPerfMetrics #-}
 getPerfMetrics :: IO [PerfMetrics]
 getPerfMetrics = do
-    -- getGcMetrics
     procMetrics <- getProcMetrics
     gcMetrics <- getGcMetrics
     ruMetrics <- getRuMetrics RUsageSelf
@@ -128,3 +129,8 @@ benchOnWith chan desc f arg = do
     (r, xs) <- benchWith f arg
     send chan desc (Count 1 : xs)
     return r
+
+-- | Like 'benchOnWith' but benchmark an action instead of function
+-- application.
+benchOn :: Channel PerfMetrics -> String -> IO b -> IO b
+benchOn chan desc f = benchOnWith chan desc (const f) ()
