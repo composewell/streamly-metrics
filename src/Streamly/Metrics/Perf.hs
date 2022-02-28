@@ -1,3 +1,4 @@
+{-# LANGUAGE UnboxedTuples #-}
 module Streamly.Metrics.Perf
     (
       PerfMetrics(..)
@@ -8,25 +9,49 @@ module Streamly.Metrics.Perf
     )
 where
 
-import Control.Monad (unless)
+import Control.Monad (when, unless)
 import Data.Maybe (catMaybes)
+import GHC.Exts (threadCPUTime#)
+import GHC.Int(Int64(..))
+import GHC.IO(IO(..))
 import GHC.Stats (getRTSStats, getRTSStatsEnabled, RTSStats(..))
-import Streamly.Internal.Data.Time.Units (NanoSecond64, fromAbsTime)
+import Streamly.Internal.Data.Time.TimeSpec (TimeSpec(..))
+import Streamly.Internal.Data.Time.Units
+    (NanoSecond64, fromAbsTime, toRelTime, addToAbsTime)
 import Streamly.Metrics.Measure (measureWith)
 import Streamly.Metrics.Perf.Type (PerfMetrics(..), checkMonotony)
 import Streamly.Metrics.Perf.RUsage (getRuMetrics, pattern RUsageSelf)
+import Streamly.Metrics.Type (Seconds)
 import Text.Show.Pretty (ppShow)
 
 import qualified Streamly.Internal.Data.Time.Clock as Clock
+
+threadCPUTime :: IO (Int64, Int64)
+threadCPUTime = IO $ \s ->
+   case threadCPUTime# s of
+    (# s', sec, nsec, _ #) ->
+        (# s', (I64# sec, I64# nsec) #)
+
+getThreadCPUTime :: IO (Seconds Double)
+getThreadCPUTime = do
+    (sec, nsec) <- threadCPUTime
+    cur <- Clock.getTime Clock.ThreadCPUTime
+    let start = toRelTime $ TimeSpec sec nsec
+        delta = addToAbsTime cur start
+        t :: Double = fromIntegral (fromAbsTime delta :: NanoSecond64) * 1e-9
+    when (t <= 0)
+        $ error
+            $ "Thread CPU time is negative: delta = " ++ show delta
+               ++ " cur = " ++ show cur ++ " start " ++ show start
+    return $ fromIntegral (fromAbsTime delta :: NanoSecond64) * 1e-9
 
 {-# INLINE getProcMetrics #-}
 getProcMetrics :: IO [PerfMetrics]
 getProcMetrics = do
     time <- Clock.getTime Clock.Monotonic
-    tcpu <- Clock.getTime Clock.ThreadCPUTime
+    tcpuSec <- getThreadCPUTime
     pcpu <- Clock.getTime Clock.ProcessCPUTime
 
-    let tcpuSec = fromIntegral (fromAbsTime tcpu :: NanoSecond64) * 1e-9
     let pcpuSec = fromIntegral (fromAbsTime pcpu :: NanoSecond64) * 1e-9
     let timeSec = fromIntegral (fromAbsTime time :: NanoSecond64) * 1e-9
     return
