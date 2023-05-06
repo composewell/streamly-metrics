@@ -139,6 +139,7 @@ library
      , streamly == 0.9.0
      , streamly-core == 0.1.0
      , stm
+     , containers  >= 0.6.5.1
 
 test-suite basic
   import: test-options
@@ -152,3 +153,14 @@ test-suite basic
      , streamly == 0.9.0
      , streamly-core == 0.1.0
      , stm
+
+executable eventParser
+  hs-source-dirs: test
+  main-is: EventParser.hs
+  ghc-options: -rtsopts -eventlog -debug -main-is EventParser
+  build-depends:
+       base >= 4.9 && < 5
+     , containers
+     , streamly-metrics
+     , streamly == 0.9.0
+     , streamly-core == 0.1.0
