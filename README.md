@@ -2,6 +2,13 @@
 
 Collect and send performance metrics from production code.
 
+For documentation, see the haddock docs of the following modules:
+
+* Streamly.Metrics.Channel
+* Streamly.Metrics.Perf
+
+See a working example in the test directory - test/Main.hs.
+
 ## How to analyze performance
 
 ## Single threaded, non-concurrent programs
