@@ -157,7 +157,7 @@ test-suite basic
 executable eventParser
   hs-source-dirs: test
   main-is: EventParser.hs
-  ghc-options: -rtsopts -eventlog -debug -main-is EventParser
+  ghc-options: -Wall -main-is EventParser
   build-depends:
        base >= 4.9 && < 5
      , containers

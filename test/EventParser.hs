@@ -5,20 +5,28 @@ module EventParser
     )
 where
 
-import Control.Monad (when)
-import Data.IORef (IORef, newIORef, modifyIORef, readIORef)
-import Data.Either (fromRight)
-import Data.Word
-import Streamly.Internal.Serialize.FromBytes
-import Streamly.Data.Parser
+import Data.Char (ord)
+import Data.IntMap (IntMap)
+import Data.Maybe (fromJust)
+import Data.Word (Word8, Word16, Word32, Word64)
+import Streamly.Data.Array (Array)
+import Streamly.Data.Parser (Parser)
+import Streamly.Data.ParserK (ParserK)
+import Streamly.Data.StreamK (StreamK)
+import Streamly.Internal.Serialize.FromBytes (int16be, word16be, word32be, word64be)
+import System.Environment (getArgs)
 
 import qualified Data.IntMap as Map
+import qualified Streamly.Data.Array as Array
 import qualified Streamly.Data.Fold as Fold
+-- import qualified Streamly.Internal.Data.Fold.Container as Fold (toContainer)
 import qualified Streamly.Data.Stream as Stream
-import qualified Streamly.Data.Parser as PD (takeEQ)
-import qualified Streamly.FileSystem.File as FP
-import qualified Streamly.Internal.Data.Stream as Stream (parseBreak)
+import qualified Streamly.Data.StreamK as StreamK
+import qualified Streamly.Data.Parser as Parser
+import qualified Streamly.Data.ParserK as ParserK
+import qualified Streamly.FileSystem.File as File
 
+{-
 #define EVENT_HEADER_BEGIN    0x68647262
 #define EVENT_HEADER_END      0x68647265
 #define EVENT_DATA_BEGIN      0x64617462
@@ -27,109 +35,220 @@ import qualified Streamly.Internal.Data.Stream as Stream (parseBreak)
 #define EVENT_HET_END         0x68657465
 #define EVENT_ET_BEGIN        0x65746200
 #define EVENT_ET_END          0x65746500
+-}
 
-parseF :: IORef (Map.IntMap Word16) -> FilePath -> IO ()
-parseF kvRef path = do
-    (res, nxt) <- Stream.parseBreak word32be $ FP.read path
+w8 :: String -> [Word8]
+w8 = map (fromIntegral . ord)
+
+---------------------
+-- Event Type
+---------------------
+
+hetBegin :: [Word8]
+hetBegin = w8 "hetb"
+
+hetEnd :: [Word8]
+hetEnd = w8 "hete"
+
+eventTypeBegin :: [Word8]
+eventTypeBegin = w8 "etb\0"
+
+eventTypeEnd :: [Word8]
+eventTypeEnd = w8 "ete\0"
+
+--  *       EVENT_ET_BEGIN
+--  *       Word16         -- unique identifier for this event
+--  *       Int16          -- >=0  size of the event in bytes (minus the header)
+--  *                      -- -1   variable size
+--  *       Word32         -- length of the next field in bytes
+--  *       Word8*         -- string describing the event
+--  *       Word32         -- length of the next field in bytes
+--  *       Word8*         -- extra info (for future extensions)
+--  *       EVENT_ET_END
+-- (event Id, event size)
+eventType :: ParserK Word8 IO (Int, Int)
+eventType = do
+    _ <- ParserK.fromParser (Parser.listEq eventTypeBegin)
+    eventId <- ParserK.fromParser word16be
+    -- ParserK.fromEffect $ print $ "Event id =" ++ show eventId
+    eventSize <- ParserK.fromParser int16be
+    -- ParserK.fromEffect $ print $ "Event size =" ++ show eventSize
+    descLen <- ParserK.fromParser word32be
+    _desc <- ParserK.fromParser (Parser.takeEQ (fromIntegral descLen) Fold.toList)
+    -- ParserK.fromEffect $ putStrLn (map (chr . fromIntegral) desc)
+    infoLen <- ParserK.fromParser word32be
+    -- ParserK.fromEffect $ print $ "info len =" ++ show infoLen
+    ParserK.fromParser (Parser.takeEQ (fromIntegral infoLen) Fold.drain)
+    _ <- ParserK.fromParser (Parser.listEq eventTypeEnd)
+    return (fromIntegral eventId, fromIntegral eventSize)
+
+---------------------
+-- Header
+---------------------
+
+headerBegin :: [Word8]
+headerBegin = w8 "hdrb"
+
+headerEnd :: [Word8]
+headerEnd = w8 "hdre"
+
+{-
+{-# INLINE kvToMap #-}
+kvToMap :: (Monad m) => Fold m a b -> Fold m (Int, a) (IntMap b)
+kvToMap = Fold.toContainer fst . Fold.lmap snd
+-}
+
+parseEventTypes ::
+       Map.IntMap Int
+    -> StreamK IO (Array Word8)
+    -> IO (Map.IntMap Int, StreamK IO (Array Word8))
+parseEventTypes kv stream = do
+    -- putStrLn "parsing eventType"
+    (r, rest) <- StreamK.parseBreakChunks eventType stream
+    case r of
+        -- XXX When the parser fails the original stream should not change, we
+        -- should be able to use "rest" here.
+        Left _ -> return (kv, stream)
+        Right (eventId, eventSize) -> do
+            let kv1 = Map.insert eventId  eventSize kv
+            parseEventTypes kv1 rest
+
+headerPre :: ParserK Word8 IO ()
+headerPre = do
+    _ <- ParserK.fromParser (Parser.listEq headerBegin)
+    _ <- ParserK.fromParser (Parser.listEq hetBegin)
+    return ()
+
+headerPost :: ParserK Word8 IO ()
+headerPost = do
+    _ <- ParserK.fromParser (Parser.listEq hetEnd)
+    _ <- ParserK.fromParser (Parser.listEq headerEnd)
+    return ()
+
+{-
+header :: ParserK Word8 IO (Map.IntMap Int)
+header = do
+    ParserK.fromParser (Parser.listEq headerBegin)
+    ParserK.fromParser (Parser.listEq hetBegin)
+    -- r <- ParserK.fromParser (Parser.many eventType (kvToMap Fold.one))
+    r <- parseEventTypes
+    ParserK.fromParser (Parser.listEq hetEnd)
+    ParserK.fromParser (Parser.listEq headerEnd)
+    return r
+-}
+
+-- XXX We can create a Parser monad based on parseBreak to compose parsers in a
+-- chain, we can also create an Alternative instance for that.
+parseHeader :: StreamK IO (Array Word8) -> IO (Map.IntMap Int, StreamK IO (Array Word8))
+parseHeader stream = do
+    (res, rest) <- StreamK.parseBreakChunks headerPre stream
     case res of
         Left err -> fail $ show err
-        Right x -> do
-           -- print x >> print (x == EVENT_HEADER_BEGIN)
-            when (x /= EVENT_HEADER_BEGIN ) $ fail "Event header begin not found."
-            (res2, nxt2) <- Stream.parseBreak word32be nxt
-            case res2 of
-                Left err -> fail $ show err
-                Right x -> do
-                    --print x >> print (x == EVENT_HET_BEGIN)
-                    when (x /= EVENT_HET_BEGIN ) $ fail "Event Type list, begin not found."
-                    (res2, nxt2) <- Stream.parseBreak word32be nxt
-                    ehe <- getEventTypes nxt2
-                    (res3, eds) <- Stream.parseBreak word32be ehe
-                    case res3 of
-                        Right EVENT_HEADER_END -> do
-                            print "EVENT_HEADER_END" >> print (x == EVENT_HEADER_END)
-                            (res, nxt) <- Stream.parseBreak word32be eds
-                            case res of
-                                Left err -> fail $ show err
-                                Right EVENT_DATA_BEGIN -> do
-                                    print "EVENT_DATA_BEGIN" >> getEventData nxt
-                        Right _ -> fail "Event header end not found."
+        Right () -> do
+            (kv, rest1) <- parseEventTypes Map.empty rest
+            (res1, rest2) <- StreamK.parseBreakChunks headerPost rest1
+            case res1 of
+                Left err -> putStrLn "header end not found" >> (fail $ show err)
+                Right () -> return (kv, rest2)
 
-                    return ()
-            return ()
-    where
+---------------------
+-- Parse events
+---------------------
 
-    getEventData st = do
-        (ev_num, eds1) <- Stream.parseBreak word16be st
-        (res4, eds2) <- Stream.parseBreak word64be eds1
-        skl <-
-            case ev_num of
-                Right num -> do
-                    mp <- readIORef kvRef
-                    return $ Map.lookup (fromIntegral num) mp
-        (res5, eds3) <-
-            case skl of
-                Just l -> do
-                    skip l eds2
-                Nothing -> fail "Event type unknown."
-        print $ "Event num = " ++ show ev_num
-        print $ "evTime = " ++ show res4
-        getEventData eds3
+dataBegin :: [Word8]
+dataBegin = w8 "datb"
 
-    getEventDatas st = do
-        (res, nxt) <- Stream.parseBreak word32be st
-        case res of
-            Left err -> fail $ show err
-            Right EVENT_DATA_BEGIN -> do
-                print "EVENT_DATA_BEGIN"
-                (res3, eds1) <- Stream.parseBreak word16be nxt
-                (res4, eds2) <- Stream.parseBreak word64be eds1
-                (res5, eds3) <- skip 14 eds2
-                (res6, eds4) <- Stream.parseBreak word16be eds3
-                (res7, eds5) <- Stream.parseBreak word64be eds4
-                (res8, eds6) <- Stream.parseBreak word32be eds5
-                print res3 >> print res4 >> print res6 >> print res7 >> print res8
-                return ()
+-- dataEnd :: [Word8]
+-- dataEnd = [0xff, 0xff]
 
-            Right EVENT_DATA_END -> print "EVENT_DATA_END"
-    getEventTypes st = do
-            (res, nxt) <- Stream.parseBreak word32be st
-            case res of
-                Left err -> fail $ show err
-                Right EVENT_ET_BEGIN -> getEventType nxt >>= getEventTypes
-                Right EVENT_HET_END -> return (nxt)
-    skip len str = Stream.parseBreak (PD.takeEQ (fromIntegral len) Fold.drain) str
-    getEventType st = do
-        (evtnum, nxt) <- Stream.parseBreak word16be st
-        let e_num = fromIntegral $ fromRight 9999 evtnum
-        print $ "Event Num =" ++ show e_num
-        (evtsize, nxt2) <- Stream.parseBreak word16be nxt
-        let e_size = fromIntegral $ case evtsize of
-                        Left err -> 0
-                        Right sz ->
-                            if (sz == 0xffff)
-                            then 0
-                            else sz
-        print $ "Event Size =" ++ show e_size
+dataPre :: StreamK IO (Array Word8) -> IO (StreamK IO (Array Word8))
+dataPre stream = do
+    let p = ParserK.fromParser (Parser.listEq dataBegin)
+    (res, rest) <- StreamK.parseBreakChunks p stream
+    case res of
+        Left err -> fail $ show err
+        Right _ -> return rest
 
-        modifyIORef kvRef (Map.insert e_num  e_size)
+#define EVENT_PRE_RUN_THREAD           200
+#define EVENT_POST_RUN_THREAD          201
+#define EVENT_THREAD_PAGE_FAULTS       202
+#define EVENT_THREAD_CTX_SWITCHES      203
+#define EVENT_THREAD_IO_BLOCKS         204
+#define EVENT_PRE_RUN_THREAD_RU        205
+#define EVENT_POST_RUN_THREAD_RU       206
+#define EVENT_PRE_RUN_THREAD_USER      207
+#define EVENT_PRE_RUN_THREAD_SYSTEM    208
+#define EVENT_POST_RUN_THREAD_USER     209
+#define EVENT_POST_RUN_THREAD_SYSTEM   210
 
-        (res3, nxt3) <- Stream.parseBreak word32be nxt2
-        case res3 of
-            Left err -> fail $ show err
-            Right len -> do
-                (res4, nxt4) <- skip len nxt3
-                (res5, nxt5) <- Stream.parseBreak word32be nxt4
-                (res6, nxt6) <- skip (fromRight 0 res5) nxt5
-                (res7, nxt7) <- Stream.parseBreak word32be nxt6
-                case res7 of
-                    Left err -> fail $ show err
-                    Right x -> when (x /= EVENT_ET_END ) $
-                                    fail "Event Type end marker not found."
-                return nxt7
+data Event =
+    PreRunThread Word64 Word32
+  | PostRunThread Word64 Word32
+  | Unknown Word64 Word16
+    {-
+  | PreRunThreadUser
+  | PreRunThreadSystem
+
+  | PostRunThreadUser
+  | PostRunThreadSystem
+
+  | ThreadPageFaults
+  | ThreadCtxSwitches
+  | ThreadIOBlocks
+    -}
+  deriving Show
+
+isKnown :: Event -> Bool
+isKnown ev =
+    case ev of
+        Unknown _ _ -> False
+        _ -> True
+
+-- XXX We can ensure that the required size of data is compacted into the next
+-- array and then use a more efficient single array parser which only passes
+-- around pos instead of the array.
+--
+-- XXX We should use a parseManyK
+
+--  * Event :
+--  *       Word16         -- event_type
+--  *       Word64         -- time (nanosecs)
+--  *       [Word16]       -- length of the rest (for variable-sized events only)
+--  *       ... extra event-specific info ...
+{-# INLINE event #-}
+event :: IntMap Int -> Parser Word8 IO Event
+event kv = do
+    eventId <- word16be
+    ts <- word64be
+    -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
+    case eventId of
+        EVENT_PRE_RUN_THREAD -> do
+            tid <- word32be
+            -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
+            -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
+            return $ PreRunThread ts tid
+        EVENT_POST_RUN_THREAD -> do
+            tid <- word32be
+            -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
+            -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
+            return $ PostRunThread ts tid
+        _ -> do
+            -- Parser.fromEffect $ putStrLn ""
+            let len = Map.lookup (fromIntegral eventId) kv
+            _ <- Parser.takeEQ (fromJust len) Fold.drain
+            return $ Unknown ts eventId
 
 main :: IO ()
 main = do
-    kvRef <- newIORef Map.empty
-    parseF kvRef "EventParser.eventlog"
-    print "Done Event"
+    (path:[]) <- getArgs
+    let stream = File.readChunks path
+    (kv, rest) <- parseHeader $ StreamK.fromStream stream
+    putStrLn $ show kv
+    rest1 <- dataPre rest
+    Stream.fold (Fold.drainMapM print)
+        $ Stream.filter isKnown
+        $ Stream.catRights
+        $ Stream.parseMany (event kv)
+        $ Stream.unfoldMany Array.reader
+        $ StreamK.toStream rest1
+    return ()
