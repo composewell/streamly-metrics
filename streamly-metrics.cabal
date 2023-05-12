@@ -154,13 +154,13 @@ test-suite basic
      , streamly-core == 0.1.0
      , stm
 
-executable eventParser
+executable process-events
   hs-source-dirs: eventlog
-  main-is: EventParser.hs
-  ghc-options: -Wall -main-is EventParser
+  main-is: Main.hs
+  other-modules: Aggregator, EventParser
+  ghc-options: -Wall
   build-depends:
        base >= 4.9 && < 5
      , containers
-     , streamly-metrics
      , streamly == 0.9.0
      , streamly-core == 0.1.0

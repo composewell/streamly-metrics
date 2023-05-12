@@ -1,20 +1,22 @@
 {-# LANGUAGE CPP #-}
 module EventParser
     (
-      main
+      parseLogHeader
+    , parseDataHeader
+    , parseEvents
+    , Event (..)
     )
 where
 
 import Data.Char (ord)
 import Data.IntMap (IntMap)
-import Data.Maybe (fromJust)
 import Data.Word (Word8, Word16, Word32, Word64)
 import Streamly.Data.Array (Array)
 import Streamly.Data.Parser (Parser)
 import Streamly.Data.ParserK (ParserK)
+import Streamly.Data.Stream (Stream)
 import Streamly.Data.StreamK (StreamK)
 import Streamly.Internal.Serialize.FromBytes (int16be, word16be, word32be, word64be)
-import System.Environment (getArgs)
 
 import qualified Data.IntMap as Map
 import qualified Streamly.Data.Array as Array
@@ -24,7 +26,6 @@ import qualified Streamly.Data.Stream as Stream
 import qualified Streamly.Data.StreamK as StreamK
 import qualified Streamly.Data.Parser as Parser
 import qualified Streamly.Data.ParserK as ParserK
-import qualified Streamly.FileSystem.File as File
 
 {-
 #define EVENT_HEADER_BEGIN    0x68647262
@@ -139,8 +140,9 @@ header = do
 
 -- XXX We can create a Parser monad based on parseBreak to compose parsers in a
 -- chain, we can also create an Alternative instance for that.
-parseHeader :: StreamK IO (Array Word8) -> IO (Map.IntMap Int, StreamK IO (Array Word8))
-parseHeader stream = do
+parseLogHeader ::
+    StreamK IO (Array Word8) -> IO (Map.IntMap Int, StreamK IO (Array Word8))
+parseLogHeader stream = do
     (res, rest) <- StreamK.parseBreakChunks headerPre stream
     case res of
         Left err -> fail $ show err
@@ -161,8 +163,8 @@ dataBegin = w8 "datb"
 -- dataEnd :: [Word8]
 -- dataEnd = [0xff, 0xff]
 
-dataPre :: StreamK IO (Array Word8) -> IO (StreamK IO (Array Word8))
-dataPre stream = do
+parseDataHeader :: StreamK IO (Array Word8) -> IO (StreamK IO (Array Word8))
+parseDataHeader stream = do
     let p = ParserK.fromParser (Parser.listEq dataBegin)
     (res, rest) <- StreamK.parseBreakChunks p stream
     case res of
@@ -234,21 +236,21 @@ event kv = do
             return $ PostRunThread ts tid
         _ -> do
             -- Parser.fromEffect $ putStrLn ""
-            let len = Map.lookup (fromIntegral eventId) kv
-            _ <- Parser.takeEQ (fromJust len) Fold.drain
+            let r = Map.lookup (fromIntegral eventId) kv
+            len <-
+                case r of
+                    Just x ->
+                        if x == -1
+                        then fmap fromIntegral word16be
+                        else return x
+                    Nothing -> error "Event not in the header"
+            _ <- Parser.takeEQ len Fold.drain
             return $ Unknown ts eventId
 
-main :: IO ()
-main = do
-    (path:[]) <- getArgs
-    let stream = File.readChunks path
-    (kv, rest) <- parseHeader $ StreamK.fromStream stream
-    putStrLn $ show kv
-    rest1 <- dataPre rest
-    Stream.fold (Fold.drainMapM print)
-        $ Stream.filter isKnown
-        $ Stream.catRights
-        $ Stream.parseMany (event kv)
-        $ Stream.unfoldMany Array.reader
-        $ StreamK.toStream rest1
-    return ()
+parseEvents :: IntMap Int -> StreamK IO (Array Word8) -> Stream IO Event
+parseEvents kv =
+      Stream.filter isKnown
+    . Stream.catRights
+    . Stream.parseMany (event kv)
+    . Stream.unfoldMany Array.reader
+    . StreamK.toStream
