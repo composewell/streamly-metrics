@@ -158,9 +158,11 @@ executable process-events
   hs-source-dirs: eventlog
   main-is: Main.hs
   other-modules: Aggregator, EventParser
-  ghc-options: -Wall
+  ghc-options: -Wall -O2 -fmax-worker-args=16 -fspec-constr-recursive=16
+  -- -fplugin Fusion.Plugin
   build-depends:
        base >= 4.9 && < 5
      , containers
      , streamly == 0.9.0
      , streamly-core == 0.1.0
+     -- , fusion-plugin

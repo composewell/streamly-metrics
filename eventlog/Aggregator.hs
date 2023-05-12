@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Aggregator
     ( translateThreadEvents
+    , CounterTagged
     , Counter (..)
     , collectThreadCounter
     )
@@ -23,7 +24,7 @@ import Streamly.Internal.Data.Fold (Fold(..), Step(..))
 
 data Counter =
     ThreadCPUTime
-    deriving (Show, Eq)
+    deriving (Show, Eq, Ord)
 
 -- Thread stats are special they are processed by all open windows in the
 -- thread.
@@ -73,7 +74,14 @@ collectThreadCounter ctr = Fold step initial extract
     step acc@(CollectDone _) _ = pure $ Partial acc -- ignore other events
 
     step (CollectPartial old) (ThreadStop c new)
-        | c == ctr = pure $ Partial $ CollectDone (new - old)
+        | c == ctr = do
+            -- putStrLn $ "new = " ++ show new ++ " old = " ++ show old
+            let delta = new - old
+            if delta < 0
+                then error $ "counter delta is negative:"
+                        ++  "new = " ++ show new ++ " old = " ++ show old
+                else pure ()
+            pure $ Partial $ CollectDone delta
     step (CollectPartial _) stat@(ThreadStart c v)
         | c == ctr = do
             putStrLn $ "Error: Got a duplicate thread start event " ++ show stat

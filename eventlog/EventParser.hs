@@ -247,6 +247,7 @@ event kv = do
             _ <- Parser.takeEQ len Fold.drain
             return $ Unknown ts eventId
 
+{-# INLINE parseEvents #-}
 parseEvents :: IntMap Int -> StreamK IO (Array Word8) -> Stream IO Event
 parseEvents kv =
       Stream.filter isKnown
