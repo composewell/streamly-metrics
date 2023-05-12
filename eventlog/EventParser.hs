@@ -183,9 +183,18 @@ parseDataHeader stream = do
 #define EVENT_POST_RUN_THREAD_USER     209
 #define EVENT_POST_RUN_THREAD_SYSTEM   210
 
+-- XXX Make these as close to translated events as possible.
+
 data Event =
-    PreRunThread Word64 Word32
+  -- RTS thread start/stop events
+    PreRunThread Word64 Word32 -- cputime, tid
   | PostRunThread Word64 Word32
+
+  -- User events
+  | PreUserCPUTime String Word64 Word32 -- tag, cputime, tid
+  | PostUserCPUTime String Word64 Word32 -- tag, cputime, tid
+
+  -- Other events
   | Unknown Word64 Word16
     {-
   | PreRunThreadUser

@@ -19,6 +19,7 @@ import qualified Streamly.Data.Fold as Fold
 import qualified Streamly.Internal.Data.Fold.Container as Fold (demuxKvToMap)
 import qualified Streamly.Data.Stream as Stream
 import qualified Streamly.Data.StreamK as StreamK
+import qualified Streamly.Data.Unfold as Unfold
 import qualified Streamly.FileSystem.File as File
 
 -------------------------------------------------------------------------------
@@ -85,8 +86,8 @@ fromEvents ::
     -> StreamK IO (Array Word8)
     -> Stream IO ((Word32, String, Counter), (Location, Int64))
 fromEvents kv =
-          Stream.catMaybes
-        . fmap translateThreadEvents
+          Stream.unfoldMany Unfold.fromList
+        . Stream.postscan translateThreadEvents
         . parseEvents kv
 
 main :: IO ()

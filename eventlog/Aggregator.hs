@@ -11,6 +11,9 @@ import Data.Int (Int64)
 import Data.Word (Word32)
 import EventParser (Event (..))
 import Streamly.Internal.Data.Fold (Fold(..), Step(..))
+import Streamly.Internal.Data.Tuple.Strict (Tuple'(..))
+
+import qualified Data.Set as Set
 
 -------------------------------------------------------------------------------
 -- Event processing
@@ -28,13 +31,48 @@ data Counter =
 
 data Location = Start | Stop deriving Show
 
+-- XXX It would be more intuitive for scans if we use "Partial s b" instead of
+-- using extract. We can avoid having to save the result in state many a times.
+
 {-# INLINE translateThreadEvents #-}
-translateThreadEvents :: Event -> Maybe ((Word32, String, Counter), (Location, Int64))
-translateThreadEvents (PreRunThread ts tid) =
-    Just ((tid, "default", ThreadCPUTime), (Start, (fromIntegral ts)))
-translateThreadEvents (PostRunThread ts tid) =
-    Just ((tid, "default", ThreadCPUTime), (Stop, (fromIntegral ts)))
-translateThreadEvents _ = Nothing
+translateThreadEvents ::
+    Fold IO Event [((Word32, String, Counter), (Location, Int64))]
+translateThreadEvents = Fold step initial extract
+
+    where
+
+    initial = pure $ Partial $ Tuple' Set.empty []
+
+    step (Tuple' set _) (PreRunThread ts tid) =
+        pure $ Partial $ Tuple' set (fmap f ("default" : Set.toList set))
+
+        where
+
+        f x = ((tid, x, ThreadCPUTime), (Start, (fromIntegral ts)))
+    step (Tuple' set _) (PostRunThread ts tid) =
+        pure $ Partial $ Tuple' set (fmap f ("default" : Set.toList set))
+
+        where
+
+        f x = ((tid, x, ThreadCPUTime), (Stop, (fromIntegral ts)))
+    step (Tuple' set _) (PreUserCPUTime tag ts tid) = do
+        let set1 = Set.insert tag set
+        pure $ Partial $ Tuple' set1 [f tag]
+
+        where
+
+        f x = ((tid, x, ThreadCPUTime), (Start, (fromIntegral ts)))
+    step (Tuple' set _) (PostUserCPUTime tag ts tid) = do
+        let set1 = Set.delete tag set
+        pure $ Partial $ Tuple' set1 [f tag]
+
+        where
+
+        f x = ((tid, x, ThreadCPUTime), (Stop, (fromIntegral ts)))
+    step (Tuple' set _) (Unknown _ _) =
+        pure $ Partial $ Tuple' set []
+
+    extract (Tuple' _ xs) = pure xs
 
 data CollectState = CollectInit | CollectPartial Int64 | CollectDone Int64
 
