@@ -1,8 +1,7 @@
 module Main (main) where
 
 import Aggregator
-    ( translateThreadEvents , collectThreadCounter, Counter (ThreadCPUTime)
-    , CounterTagged)
+    ( translateThreadEvents , collectThreadCounter, Counter, Location (..))
 import System.Environment (getArgs)
 import Data.Int (Int64)
 import Data.Map (Map)
@@ -68,26 +67,23 @@ stats =
 toStats ::
     Fold
         IO
-        (Word32, CounterTagged)
-        (Map Word32 (Map (Word32, Maybe String, Counter) ()))
-toStats = Fold.demuxKvToMap (\tid -> pure (f1 tid))
+        ((Word32, String, Counter), (Location, Int64))
+        (Map (Word32, String, Counter) ())
+toStats = Fold.demuxKvToMap (\k -> pure (f1 k))
 
     where
 
     f1 k1 =
           Fold.lmap (\x -> (k1, x))
-        $ Fold.scanMaybe (secondMaybe (collectThreadCounter ThreadCPUTime))
-        $ Fold.lmap (\(tid, (window, x)) -> ((tid, window, ThreadCPUTime), x))
-        $ Fold.demuxKvToMap (\k -> pure (f4 k))
-
-    f4 k =
-          Fold.lmap (\x -> (k, x))
+        $ Fold.scanMaybe (secondMaybe collectThreadCounter)
         $ Fold.postscan (second stats)
         $ Fold.drainMapM print
 
 {-# INLINE fromEvents #-}
 fromEvents ::
-    IntMap Int -> StreamK IO (Array Word8) -> Stream IO (Word32, CounterTagged)
+       IntMap Int
+    -> StreamK IO (Array Word8)
+    -> Stream IO ((Word32, String, Counter), (Location, Int64))
 fromEvents kv =
           Stream.catMaybes
         . fmap translateThreadEvents
