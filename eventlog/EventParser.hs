@@ -183,19 +183,17 @@ parseDataHeader stream = do
 #define EVENT_POST_RUN_THREAD_USER     209
 #define EVENT_POST_RUN_THREAD_SYSTEM   210
 
--- XXX Make these as close to translated events as possible.
-
 data Event =
   -- RTS thread start/stop events
-    PreRunThread Word64 Word32 -- cputime, tid
-  | PostRunThread Word64 Word32
+    StartThreadCPUTime Word32 Word64 -- tid, cputime
+  | StopThreadCPUTime Word32 Word64
 
-  -- User events
-  | PreUserCPUTime String Word64 Word32 -- tag, cputime, tid
-  | PostUserCPUTime String Word64 Word32 -- tag, cputime, tid
+  -- User defined window events
+  | StartWindowCPUTime Word32 String Word64 -- tid, windowtag, cputime
+  | StopWindowCPUTime Word32 String Word64
 
   -- Other events
-  | Unknown Word64 Word16
+  | Unknown Word64 Word16 -- timestamp, size
     {-
   | PreRunThreadUser
   | PreRunThreadSystem
@@ -237,12 +235,12 @@ event kv = do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
-            return $ PreRunThread ts tid
+            return $ StartThreadCPUTime tid ts
         EVENT_POST_RUN_THREAD -> do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
-            return $ PostRunThread ts tid
+            return $ StopThreadCPUTime tid ts
         _ -> do
             -- Parser.fromEffect $ putStrLn ""
             let r = Map.lookup (fromIntegral eventId) kv

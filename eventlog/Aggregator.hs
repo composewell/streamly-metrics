@@ -43,26 +43,26 @@ translateThreadEvents = Fold step initial extract
 
     initial = pure $ Partial $ Tuple' Set.empty []
 
-    step (Tuple' set _) (PreRunThread ts tid) =
+    step (Tuple' set _) (StartThreadCPUTime tid ts) =
         pure $ Partial $ Tuple' set (fmap f ("default" : Set.toList set))
 
         where
 
         f x = ((tid, x, ThreadCPUTime), (Start, (fromIntegral ts)))
-    step (Tuple' set _) (PostRunThread ts tid) =
+    step (Tuple' set _) (StopThreadCPUTime tid ts) =
         pure $ Partial $ Tuple' set (fmap f ("default" : Set.toList set))
 
         where
 
         f x = ((tid, x, ThreadCPUTime), (Stop, (fromIntegral ts)))
-    step (Tuple' set _) (PreUserCPUTime tag ts tid) = do
+    step (Tuple' set _) (StartWindowCPUTime tid tag ts) = do
         let set1 = Set.insert tag set
         pure $ Partial $ Tuple' set1 [f tag]
 
         where
 
         f x = ((tid, x, ThreadCPUTime), (Start, (fromIntegral ts)))
-    step (Tuple' set _) (PostUserCPUTime tag ts tid) = do
+    step (Tuple' set _) (StopWindowCPUTime tid tag ts) = do
         let set1 = Set.delete tag set
         pure $ Partial $ Tuple' set1 [f tag]
 
