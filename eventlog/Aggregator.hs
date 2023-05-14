@@ -26,10 +26,19 @@ import qualified Data.Set as Set
 -- handle this? or the user event can log the thread-id as part of the tag.
 
 data Counter =
-    ThreadCPUTime
+      ThreadCPUTime
+    | ThreadCPUTimeWall
+    | ThreadUserTime
+    | ThreadSystemTime
+    | ThreadCtxVoluntary
+    | ThreadCtxInvoluntary
+    | ThreadPageFaultMinor
+    | ThreadPageFaultMajor
+    | ThreadIOBlockIn
+    | ThreadIOBlockOut
     deriving (Show, Eq, Ord)
 
-data Location = Start | Stop deriving Show
+data Location = Start | Stop | OneShot deriving Show
 
 -- XXX It would be more intuitive for scans if we use "Partial s b" instead of
 -- using extract. We can avoid having to save the result in state many a times.
@@ -43,32 +52,73 @@ translateThreadEvents = Fold step initial extract
 
     initial = pure $ Partial $ Tuple' Set.empty []
 
-    step (Tuple' set _) (StartThreadCPUTime tid ts) =
+    threadEvent2 set tid ctr1 v1 ctr2 v2 =
+        pure $ Partial $ Tuple' set
+            ((if v1 /= 0
+            then [((tid, "default", ctr1), (OneShot, (fromIntegral v1)))]
+            else []) ++
+            (if v2 /= 0
+            then [((tid, "default", ctr2), (OneShot, (fromIntegral v2)))]
+            else []))
+
+    threadEvent set tid ts ctr loc =
         pure $ Partial $ Tuple' set (fmap f ("default" : Set.toList set))
 
         where
 
-        f x = ((tid, x, ThreadCPUTime), (Start, (fromIntegral ts)))
-    step (Tuple' set _) (StopThreadCPUTime tid ts) =
-        pure $ Partial $ Tuple' set (fmap f ("default" : Set.toList set))
+        f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
 
-        where
-
-        f x = ((tid, x, ThreadCPUTime), (Stop, (fromIntegral ts)))
-    step (Tuple' set _) (StartWindowCPUTime tid tag ts) = do
+    windowStart set tid tag ts ctr loc = do
         let set1 = Set.insert tag set
         pure $ Partial $ Tuple' set1 [f tag]
 
         where
 
-        f x = ((tid, x, ThreadCPUTime), (Start, (fromIntegral ts)))
-    step (Tuple' set _) (StopWindowCPUTime tid tag ts) = do
+        f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
+
+    windowEnd set tid tag ts ctr loc = do
         let set1 = Set.delete tag set
         pure $ Partial $ Tuple' set1 [f tag]
 
         where
 
-        f x = ((tid, x, ThreadCPUTime), (Stop, (fromIntegral ts)))
+        f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
+
+    -- CPUTime
+    step (Tuple' set _) (StartThreadCPUTime tid ts) =
+        threadEvent set tid ts ThreadCPUTime Start
+    step (Tuple' set _) (StopThreadCPUTime tid ts) =
+        threadEvent set tid ts ThreadCPUTime Stop
+    step (Tuple' set _) (StartWindowCPUTime tid tag ts) =
+        windowStart set tid tag ts ThreadCPUTime Start
+    step (Tuple' set _) (StopWindowCPUTime tid tag ts) =
+        windowEnd set tid tag ts ThreadCPUTime Start
+
+    step (Tuple' set _) (StartThreadCPUTimeWall tid ts) =
+        threadEvent set tid ts ThreadCPUTimeWall Start
+    step (Tuple' set _) (StopThreadCPUTimeWall tid ts) =
+        threadEvent set tid ts ThreadCPUTimeWall Stop
+
+    -- User time
+    step (Tuple' set _) (StartThreadUserTime tid ts) =
+        threadEvent set tid ts ThreadUserTime Start
+    step (Tuple' set _) (StopThreadUserTime tid ts) =
+        threadEvent set tid ts ThreadUserTime Stop
+
+    step (Tuple' set _) (StartThreadSystemTime tid ts) =
+        threadEvent set tid ts ThreadSystemTime Start
+    step (Tuple' set _) (StopThreadSystemTime tid ts) =
+        threadEvent set tid ts ThreadSystemTime Stop
+
+    step (Tuple' set _) (ThreadCtxSwitches tid vol invol) =
+        threadEvent2 set tid ThreadCtxVoluntary vol ThreadCtxInvoluntary invol
+
+    step (Tuple' set _) (ThreadPageFaults tid minor major) =
+        threadEvent2 set tid ThreadPageFaultMinor minor ThreadPageFaultMajor major
+
+    step (Tuple' set _) (ThreadIOBlocks tid ioIn ioOut) =
+        threadEvent2 set tid ThreadIOBlockIn ioIn ThreadIOBlockOut ioOut
+
     step (Tuple' set _) (Unknown _ _) =
         pure $ Partial $ Tuple' set []
 
@@ -89,6 +139,8 @@ collectThreadCounter = Fold step initial extract
     step CollectInit stat@(Stop, _) = do
         putStrLn $ "Error: Stop event when counter is not initialized." ++ show stat
         pure $ Partial CollectInit
+    step CollectInit (OneShot, v) =
+        pure $ Partial $ CollectDone v
 
     -- Same handling as CollectInit
     step (CollectDone _) (Start, v)
@@ -96,6 +148,8 @@ collectThreadCounter = Fold step initial extract
     step acc@(CollectDone _) stat@(Stop, _) = do
         putStrLn $ "Error: Stop event when counter is not initialized." ++ show stat
         pure $ Partial acc
+    step (CollectDone _) (OneShot, v) =
+        pure $ Partial $ CollectDone v
 
     step (CollectPartial old) (Stop, new) = do
             -- putStrLn $ "new = " ++ show new ++ " old = " ++ show old
@@ -106,8 +160,11 @@ collectThreadCounter = Fold step initial extract
                 else pure ()
             pure $ Partial $ CollectDone delta
     step (CollectPartial _) stat@(Start, v) = do
-            putStrLn $ "Error: Got a duplicate thread start event " ++ show stat
-            pure $ Partial $ CollectPartial v
+        putStrLn $ "Error: Got a duplicate thread start event " ++ show stat
+        pure $ Partial $ CollectPartial v
+    step (CollectPartial _) (OneShot, v) = do
+        putStrLn $ "Error: Bad event data, cannot be in CollectPartial state for a one shot counter."
+        pure $ Partial $ CollectDone v
 
     extract CollectInit = pure Nothing
     extract (CollectPartial _) = pure Nothing

@@ -78,6 +78,7 @@ toStats = Fold.demuxKvToMap (\k -> pure (f1 k))
           Fold.lmap (\x -> (k1, x))
         $ Fold.scanMaybe (secondMaybe collectThreadCounter)
         $ Fold.postscan (second stats)
+        -- $ Fold.filter (\kv -> snd (snd kv !! 0) > 50000)
         $ Fold.drainMapM print
 
 {-# INLINE fromEvents #-}

@@ -171,6 +171,9 @@ parseDataHeader stream = do
         Left err -> fail $ show err
         Right _ -> return rest
 
+#define EVENT_RUN_THREAD           1 /* (thread)               */
+#define EVENT_STOP_THREAD          2 /* (thread, status, blockinfo) */
+
 #define EVENT_PRE_RUN_THREAD           200
 #define EVENT_POST_RUN_THREAD          201
 #define EVENT_THREAD_PAGE_FAULTS       202
@@ -187,24 +190,28 @@ data Event =
   -- RTS thread start/stop events
     StartThreadCPUTime Word32 Word64 -- tid, cputime
   | StopThreadCPUTime Word32 Word64
-
-  -- User defined window events
   | StartWindowCPUTime Word32 String Word64 -- tid, windowtag, cputime
   | StopWindowCPUTime Word32 String Word64
 
+  | StartThreadCPUTimeWall Word32 Word64 -- tid, cputime
+  | StopThreadCPUTimeWall Word32 Word64
+
+  | StartThreadUserTime Word32 Word64
+  | StopThreadUserTime Word32 Word64
+  -- | StartWindowUserTime Word32 Word64
+  -- | StopWindowUserTime Word32 Word64
+
+  | StartThreadSystemTime Word32 Word64
+  | StopThreadSystemTime Word32 Word64
+  -- | StartWindowSystemTime Word32 Word64
+  -- | StopWindowSystemTime Word32 Word64
+
+  | ThreadPageFaults Word32 Word64 Word64
+  | ThreadCtxSwitches Word32 Word64 Word64
+  | ThreadIOBlocks Word32 Word64 Word64
+
   -- Other events
   | Unknown Word64 Word16 -- timestamp, size
-    {-
-  | PreRunThreadUser
-  | PreRunThreadSystem
-
-  | PostRunThreadUser
-  | PostRunThreadSystem
-
-  | ThreadPageFaults
-  | ThreadCtxSwitches
-  | ThreadIOBlocks
-    -}
   deriving Show
 
 isKnown :: Event -> Bool
@@ -229,8 +236,18 @@ event :: IntMap Int -> Parser Word8 IO Event
 event kv = do
     eventId <- word16be
     ts <- word64be
-    -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
+    -- XXX This does not get executed if we error out
+    -- Parser.fromEffect $ putStrLn $ "event = " ++ show eventId ++ " ts = " ++ show ts
     case eventId of
+        {-
+        EVENT_RUN_THREAD -> do
+            tid <- word32be
+            return $ StartThreadCPUTimeWall tid ts
+        EVENT_STOP_THREAD -> do
+            tid <- word32be
+            -- XXX Stop thread has two more fields
+            return $ StopThreadCPUTimeWall tid ts
+        -}
         EVENT_PRE_RUN_THREAD -> do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
@@ -241,6 +258,33 @@ event kv = do
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
             return $ StopThreadCPUTime tid ts
+        EVENT_PRE_RUN_THREAD_USER -> do
+            tid <- word32be
+            return $ StartThreadUserTime tid ts
+        EVENT_POST_RUN_THREAD_USER -> do
+            tid <- word32be
+            return $ StopThreadUserTime tid ts
+        EVENT_PRE_RUN_THREAD_SYSTEM -> do
+            tid <- word32be
+            return $ StartThreadSystemTime tid ts
+        EVENT_POST_RUN_THREAD_SYSTEM -> do
+            tid <- word32be
+            return $ StopThreadSystemTime tid ts
+        EVENT_THREAD_CTX_SWITCHES -> do
+            tid <- word32be
+            vol <- word64be
+            invol <- word64be
+            return $ ThreadCtxSwitches tid vol invol
+        EVENT_THREAD_PAGE_FAULTS -> do
+            tid <- word32be
+            minor <- word64be
+            major <- word64be
+            return $ ThreadPageFaults tid minor major
+        EVENT_THREAD_IO_BLOCKS -> do
+            tid <- word32be
+            ioIn <- word64be
+            ioOut <- word64be
+            return $ ThreadIOBlocks tid ioIn ioOut
         _ -> do
             -- Parser.fromEffect $ putStrLn ""
             let r = Map.lookup (fromIntegral eventId) kv
@@ -250,7 +294,7 @@ event kv = do
                         if x == -1
                         then fmap fromIntegral word16be
                         else return x
-                    Nothing -> error "Event not in the header"
+                    Nothing -> error $ "Event not in the header: " ++ show eventId
             _ <- Parser.takeEQ len Fold.drain
             return $ Unknown ts eventId
 
