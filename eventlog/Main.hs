@@ -91,6 +91,10 @@ fromEvents kv =
         . Stream.postscan translateThreadEvents
         . parseEvents kv
 
+-- XXX Are the events for a particular thread guaranteed to come in order. What
+-- if a thread logged events to a particular capability buffer and then got
+-- scheduled on another capability before its eventlog could be flushed from
+-- the previous capability?
 main :: IO ()
 main = do
     (path:[]) <- getArgs

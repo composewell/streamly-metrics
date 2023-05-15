@@ -61,8 +61,15 @@ translateThreadEvents = Fold step initial extract
             then [((tid, "default", ctr2), (OneShot, (fromIntegral v2)))]
             else []))
 
-    threadEvent set tid ts ctr loc =
+    threadEventBcast set tid ts ctr loc =
         pure $ Partial $ Tuple' set (fmap f ("default" : Set.toList set))
+
+        where
+
+        f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
+
+    threadEvent set tid ts ctr loc =
+        pure $ Partial $ Tuple' set [f "default"]
 
         where
 
@@ -86,13 +93,13 @@ translateThreadEvents = Fold step initial extract
 
     -- CPUTime
     step (Tuple' set _) (StartThreadCPUTime tid ts) =
-        threadEvent set tid ts ThreadCPUTime Start
+        threadEventBcast set tid ts ThreadCPUTime Start
     step (Tuple' set _) (StopThreadCPUTime tid ts) =
-        threadEvent set tid ts ThreadCPUTime Stop
+        threadEventBcast set tid ts ThreadCPUTime Stop
     step (Tuple' set _) (StartWindowCPUTime tid tag ts) =
         windowStart set tid tag ts ThreadCPUTime Start
     step (Tuple' set _) (StopWindowCPUTime tid tag ts) =
-        windowEnd set tid tag ts ThreadCPUTime Start
+        windowEnd set tid tag ts ThreadCPUTime Stop
 
     step (Tuple' set _) (StartThreadCPUTimeWall tid ts) =
         threadEvent set tid ts ThreadCPUTimeWall Start

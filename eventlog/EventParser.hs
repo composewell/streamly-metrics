@@ -8,7 +8,7 @@ module EventParser
     )
 where
 
-import Data.Char (ord)
+import Data.Char (ord, chr)
 import Data.IntMap (IntMap)
 import Data.Word (Word8, Word16, Word32, Word64)
 import Streamly.Data.Array (Array)
@@ -173,6 +173,7 @@ parseDataHeader stream = do
 
 #define EVENT_RUN_THREAD           1 /* (thread)               */
 #define EVENT_STOP_THREAD          2 /* (thread, status, blockinfo) */
+#define EVENT_USER_MSG            19 /* (message ...)          */
 
 #define EVENT_PRE_RUN_THREAD           200
 #define EVENT_POST_RUN_THREAD          201
@@ -248,6 +249,18 @@ event kv = do
             -- XXX Stop thread has two more fields
             return $ StopThreadCPUTimeWall tid ts
         -}
+        EVENT_USER_MSG -> do
+            len <- word16be
+            msg <- Parser.takeEQ (fromIntegral len) (Fold.lmap (chr . fromIntegral) Fold.toList)
+            let (tid, rest) = span (/= ':') msg
+                (loc, rest1) = span (/= ':') (drop 1 rest)
+                tag = drop 1 rest1
+                tid1 = read (drop 9 tid) :: Word32
+            -- Parser.fromEffect $ putStrLn $ "tid = " ++ show tid1 ++ " loc = " ++ loc ++ " tag = " ++ tag
+            case loc of
+                "START" -> return $ StartWindowCPUTime tid1 tag ts
+                "END" -> return $ StopWindowCPUTime tid1 tag ts
+                _ -> error $ "Invalid window location tag: " ++ loc
         EVENT_PRE_RUN_THREAD -> do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
