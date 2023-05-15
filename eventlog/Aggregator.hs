@@ -13,6 +13,7 @@ import EventParser (Event (..))
 import Streamly.Internal.Data.Fold (Fold(..), Step(..))
 import Streamly.Internal.Data.Tuple.Strict (Tuple'(..))
 
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 -------------------------------------------------------------------------------
@@ -50,10 +51,10 @@ translateThreadEvents = Fold step initial extract
 
     where
 
-    initial = pure $ Partial $ Tuple' Set.empty []
+    initial = pure $ Partial $ Tuple' Map.empty []
 
-    threadEvent2 set tid ctr1 v1 ctr2 v2 =
-        pure $ Partial $ Tuple' set
+    threadEvent2 mp tid ctr1 v1 ctr2 v2 =
+        pure $ Partial $ Tuple' mp
             ((if v1 /= 0
             then [((tid, "default", ctr1), (OneShot, (fromIntegral v1)))]
             else []) ++
@@ -61,73 +62,84 @@ translateThreadEvents = Fold step initial extract
             then [((tid, "default", ctr2), (OneShot, (fromIntegral v2)))]
             else []))
 
-    threadEventBcast set tid ts ctr loc =
-        pure $ Partial $ Tuple' set (fmap f ("default" : Set.toList set))
+    threadEventBcast mp tid ts ctr loc = do
+        let r = Map.lookup tid mp
+        case r of
+            Just set ->
+                pure $ Partial $ Tuple' mp (fmap f ("default" : Set.toList set))
+            Nothing ->
+                pure $ Partial $ Tuple' mp [f "default"]
 
         where
 
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
 
-    threadEvent set tid ts ctr loc =
-        pure $ Partial $ Tuple' set [f "default"]
+    threadEvent mp tid ts ctr loc =
+        pure $ Partial $ Tuple' mp [f "default"]
 
         where
 
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
 
-    windowStart set tid tag ts ctr loc = do
-        let set1 = Set.insert tag set
-        pure $ Partial $ Tuple' set1 [f tag]
+    windowStart mp tid tag ts ctr loc = do
+        let mp1 = Map.alter alter tid mp
+        pure $ Partial $ Tuple' mp1 [f tag]
 
         where
+
+        alter Nothing = Just $ Set.singleton tag
+        alter (Just set) = Just $ Set.insert tag set
 
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
 
-    windowEnd set tid tag ts ctr loc = do
-        let set1 = Set.delete tag set
-        pure $ Partial $ Tuple' set1 [f tag]
+    windowEnd mp tid tag ts ctr loc = do
+        let mp1 = Map.alter alter tid mp
+        pure $ Partial $ Tuple' mp1 [f tag]
 
         where
+
+        alter Nothing = error "Window end when window does not exist"
+        alter (Just set) = Just $ Set.delete tag set
 
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
 
     -- CPUTime
-    step (Tuple' set _) (StartThreadCPUTime tid ts) =
-        threadEventBcast set tid ts ThreadCPUTime Start
-    step (Tuple' set _) (StopThreadCPUTime tid ts) =
-        threadEventBcast set tid ts ThreadCPUTime Stop
-    step (Tuple' set _) (StartWindowCPUTime tid tag ts) =
-        windowStart set tid tag ts ThreadCPUTime Start
-    step (Tuple' set _) (StopWindowCPUTime tid tag ts) =
-        windowEnd set tid tag ts ThreadCPUTime Stop
+    step (Tuple' mp _) (StartThreadCPUTime tid ts) =
+        threadEventBcast mp tid ts ThreadCPUTime Start
+    step (Tuple' mp _) (StopThreadCPUTime tid ts) =
+        threadEventBcast mp tid ts ThreadCPUTime Stop
+    step (Tuple' mp _) (StartWindowCPUTime tid tag ts) =
+        windowStart mp tid tag ts ThreadCPUTime Start
+    step (Tuple' mp _) (StopWindowCPUTime tid tag ts) =
+        windowEnd mp tid tag ts ThreadCPUTime Stop
 
-    step (Tuple' set _) (StartThreadCPUTimeWall tid ts) =
-        threadEvent set tid ts ThreadCPUTimeWall Start
-    step (Tuple' set _) (StopThreadCPUTimeWall tid ts) =
-        threadEvent set tid ts ThreadCPUTimeWall Stop
+    step (Tuple' mp _) (StartThreadCPUTimeWall tid ts) =
+        threadEvent mp tid ts ThreadCPUTimeWall Start
+    step (Tuple' mp _) (StopThreadCPUTimeWall tid ts) =
+        threadEvent mp tid ts ThreadCPUTimeWall Stop
 
     -- User time
-    step (Tuple' set _) (StartThreadUserTime tid ts) =
-        threadEvent set tid ts ThreadUserTime Start
-    step (Tuple' set _) (StopThreadUserTime tid ts) =
-        threadEvent set tid ts ThreadUserTime Stop
+    step (Tuple' mp _) (StartThreadUserTime tid ts) =
+        threadEvent mp tid ts ThreadUserTime Start
+    step (Tuple' mp _) (StopThreadUserTime tid ts) =
+        threadEvent mp tid ts ThreadUserTime Stop
 
-    step (Tuple' set _) (StartThreadSystemTime tid ts) =
-        threadEvent set tid ts ThreadSystemTime Start
-    step (Tuple' set _) (StopThreadSystemTime tid ts) =
-        threadEvent set tid ts ThreadSystemTime Stop
+    step (Tuple' mp _) (StartThreadSystemTime tid ts) =
+        threadEvent mp tid ts ThreadSystemTime Start
+    step (Tuple' mp _) (StopThreadSystemTime tid ts) =
+        threadEvent mp tid ts ThreadSystemTime Stop
 
-    step (Tuple' set _) (ThreadCtxSwitches tid vol invol) =
-        threadEvent2 set tid ThreadCtxVoluntary vol ThreadCtxInvoluntary invol
+    step (Tuple' mp _) (ThreadCtxSwitches tid vol invol) =
+        threadEvent2 mp tid ThreadCtxVoluntary vol ThreadCtxInvoluntary invol
 
-    step (Tuple' set _) (ThreadPageFaults tid minor major) =
-        threadEvent2 set tid ThreadPageFaultMinor minor ThreadPageFaultMajor major
+    step (Tuple' mp _) (ThreadPageFaults tid minor major) =
+        threadEvent2 mp tid ThreadPageFaultMinor minor ThreadPageFaultMajor major
 
-    step (Tuple' set _) (ThreadIOBlocks tid ioIn ioOut) =
-        threadEvent2 set tid ThreadIOBlockIn ioIn ThreadIOBlockOut ioOut
+    step (Tuple' mp _) (ThreadIOBlocks tid ioIn ioOut) =
+        threadEvent2 mp tid ThreadIOBlockIn ioIn ThreadIOBlockOut ioOut
 
-    step (Tuple' set _) (Unknown _ _) =
-        pure $ Partial $ Tuple' set []
+    step (Tuple' mp _) (Unknown _ _) =
+        pure $ Partial $ Tuple' mp []
 
     extract (Tuple' _ xs) = pure xs
 
