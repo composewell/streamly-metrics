@@ -28,18 +28,11 @@ import qualified Data.Set as Set
 
 data Counter =
       ThreadCPUTime
-    | ThreadCPUTimeWall
-    | ThreadUserTime
-    | ThreadSystemTime
     | ThreadCtxVoluntary
-    | ThreadCtxInvoluntary
     | ThreadPageFaultMinor
-    | ThreadPageFaultMajor
-    | ThreadIOBlockIn
-    | ThreadIOBlockOut
     deriving (Show, Eq, Ord)
 
-data Location = Start | Stop | OneShot deriving Show
+data Location = Start | Stop deriving Show
 
 -- XXX It would be more intuitive for scans if we use "Partial s b" instead of
 -- using extract. We can avoid having to save the result in state many a times.
@@ -53,6 +46,8 @@ translateThreadEvents = Fold step initial extract
 
     initial = pure $ Partial $ Tuple' Map.empty []
 
+    {-
+    -- OneShot logs instead of pre/post brackets
     threadEvent2 mp tid ctr1 v1 ctr2 v2 =
         pure $ Partial $ Tuple' mp
             ((if v1 /= 0
@@ -61,6 +56,7 @@ translateThreadEvents = Fold step initial extract
             (if v2 /= 0
             then [((tid, "default", ctr2), (OneShot, (fromIntegral v2)))]
             else []))
+            -}
 
     threadEventBcast mp tid ts ctr loc = do
         let r = Map.lookup tid mp
@@ -74,12 +70,14 @@ translateThreadEvents = Fold step initial extract
 
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
 
+    {-
     threadEvent mp tid ts ctr loc =
         pure $ Partial $ Tuple' mp [f "default"]
 
         where
 
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
+        -}
 
     windowStart mp tid tag ts ctr loc = do
         let mp1 = Map.alter alter tid mp
@@ -104,39 +102,24 @@ translateThreadEvents = Fold step initial extract
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
 
     -- CPUTime
-    step (Tuple' mp _) (StartThreadCPUTime tid ts) =
-        threadEventBcast mp tid ts ThreadCPUTime Start
-    step (Tuple' mp _) (StopThreadCPUTime tid ts) =
-        threadEventBcast mp tid ts ThreadCPUTime Stop
-    step (Tuple' mp _) (StartWindowCPUTime tid tag ts) =
-        windowStart mp tid tag ts ThreadCPUTime Start
-    step (Tuple' mp _) (StopWindowCPUTime tid tag ts) =
-        windowEnd mp tid tag ts ThreadCPUTime Stop
+    step (Tuple' mp _) (StartThreadCPUTime tid counter) =
+        threadEventBcast mp tid counter ThreadCPUTime Start
+    step (Tuple' mp _) (StopThreadCPUTime tid counter) =
+        threadEventBcast mp tid counter ThreadCPUTime Stop
+    step (Tuple' mp _) (StartWindowCPUTime tid tag counter) =
+        windowStart mp tid tag counter ThreadCPUTime Start
+    step (Tuple' mp _) (StopWindowCPUTime tid tag counter) =
+        windowEnd mp tid tag counter ThreadCPUTime Stop
 
-    step (Tuple' mp _) (StartThreadCPUTimeWall tid ts) =
-        threadEvent mp tid ts ThreadCPUTimeWall Start
-    step (Tuple' mp _) (StopThreadCPUTimeWall tid ts) =
-        threadEvent mp tid ts ThreadCPUTimeWall Stop
+    step (Tuple' mp _) (StartThreadCtxSwitches tid counter) =
+        threadEventBcast mp tid counter ThreadCtxVoluntary Start
+    step (Tuple' mp _) (StopThreadCtxSwitches tid counter) =
+        threadEventBcast mp tid counter ThreadCtxVoluntary Stop
 
-    -- User time
-    step (Tuple' mp _) (StartThreadUserTime tid ts) =
-        threadEvent mp tid ts ThreadUserTime Start
-    step (Tuple' mp _) (StopThreadUserTime tid ts) =
-        threadEvent mp tid ts ThreadUserTime Stop
-
-    step (Tuple' mp _) (StartThreadSystemTime tid ts) =
-        threadEvent mp tid ts ThreadSystemTime Start
-    step (Tuple' mp _) (StopThreadSystemTime tid ts) =
-        threadEvent mp tid ts ThreadSystemTime Stop
-
-    step (Tuple' mp _) (ThreadCtxSwitches tid vol invol) =
-        threadEvent2 mp tid ThreadCtxVoluntary vol ThreadCtxInvoluntary invol
-
-    step (Tuple' mp _) (ThreadPageFaults tid minor major) =
-        threadEvent2 mp tid ThreadPageFaultMinor minor ThreadPageFaultMajor major
-
-    step (Tuple' mp _) (ThreadIOBlocks tid ioIn ioOut) =
-        threadEvent2 mp tid ThreadIOBlockIn ioIn ThreadIOBlockOut ioOut
+    step (Tuple' mp _) (StartThreadPageFaults tid counter) =
+        threadEventBcast mp tid counter ThreadPageFaultMinor Start
+    step (Tuple' mp _) (StopThreadPageFaults tid counter) =
+        threadEventBcast mp tid counter ThreadPageFaultMinor Stop
 
     step (Tuple' mp _) (Unknown _ _) =
         pure $ Partial $ Tuple' mp []
@@ -158,8 +141,10 @@ collectThreadCounter = Fold step initial extract
     step CollectInit stat@(Stop, _) = do
         putStrLn $ "Error: Stop event when counter is not initialized." ++ show stat
         pure $ Partial CollectInit
+        {-
     step CollectInit (OneShot, v) =
         pure $ Partial $ CollectDone v
+        -}
 
     -- Same handling as CollectInit
     step (CollectDone _) (Start, v)
@@ -167,8 +152,10 @@ collectThreadCounter = Fold step initial extract
     step acc@(CollectDone _) stat@(Stop, _) = do
         putStrLn $ "Error: Stop event when counter is not initialized." ++ show stat
         pure $ Partial acc
+        {-
     step (CollectDone _) (OneShot, v) =
         pure $ Partial $ CollectDone v
+        -}
 
     step (CollectPartial old) (Stop, new) = do
             -- putStrLn $ "new = " ++ show new ++ " old = " ++ show old
@@ -181,9 +168,11 @@ collectThreadCounter = Fold step initial extract
     step (CollectPartial _) stat@(Start, v) = do
         putStrLn $ "Error: Got a duplicate thread start event " ++ show stat
         pure $ Partial $ CollectPartial v
+        {-
     step (CollectPartial _) (OneShot, v) = do
         putStrLn $ "Error: Bad event data, cannot be in CollectPartial state for a one shot counter."
         pure $ Partial $ CollectDone v
+        -}
 
     extract CollectInit = pure Nothing
     extract (CollectPartial _) = pure Nothing

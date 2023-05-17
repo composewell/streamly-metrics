@@ -176,17 +176,12 @@ parseDataHeader stream = do
 #define EVENT_STOP_THREAD          2 /* (thread, status, blockinfo) */
 #define EVENT_USER_MSG            19 /* (message ...)          */
 
-#define EVENT_PRE_RUN_THREAD           200
-#define EVENT_POST_RUN_THREAD          201
-#define EVENT_THREAD_PAGE_FAULTS       202
-#define EVENT_THREAD_CTX_SWITCHES      203
-#define EVENT_THREAD_IO_BLOCKS         204
-#define EVENT_PRE_RUN_THREAD_RU        205
-#define EVENT_POST_RUN_THREAD_RU       206
-#define EVENT_PRE_RUN_THREAD_USER      207
-#define EVENT_PRE_RUN_THREAD_SYSTEM    208
-#define EVENT_POST_RUN_THREAD_USER     209
-#define EVENT_POST_RUN_THREAD_SYSTEM   210
+#define EVENT_PRE_THREAD_CLOCK           200
+#define EVENT_POST_THREAD_CLOCK          201
+#define EVENT_PRE_THREAD_PAGE_FAULTS     202
+#define EVENT_POST_THREAD_PAGE_FAULTS    203
+#define EVENT_PRE_THREAD_CTX_SWITCHES    204
+#define EVENT_POST_THREAD_CTX_SWITCHES   205
 
 data Event =
   -- RTS thread start/stop events
@@ -195,22 +190,10 @@ data Event =
   | StartWindowCPUTime Word32 String Word64 -- tid, windowtag, cputime
   | StopWindowCPUTime Word32 String Word64
 
-  | StartThreadCPUTimeWall Word32 Word64 -- tid, cputime
-  | StopThreadCPUTimeWall Word32 Word64
-
-  | StartThreadUserTime Word32 Word64
-  | StopThreadUserTime Word32 Word64
-  -- | StartWindowUserTime Word32 Word64
-  -- | StopWindowUserTime Word32 Word64
-
-  | StartThreadSystemTime Word32 Word64
-  | StopThreadSystemTime Word32 Word64
-  -- | StartWindowSystemTime Word32 Word64
-  -- | StopWindowSystemTime Word32 Word64
-
-  | ThreadPageFaults Word32 Word64 Word64
-  | ThreadCtxSwitches Word32 Word64 Word64
-  | ThreadIOBlocks Word32 Word64 Word64
+  | StartThreadPageFaults Word32 Word64
+  | StopThreadPageFaults Word32 Word64
+  | StartThreadCtxSwitches Word32 Word64
+  | StopThreadCtxSwitches Word32 Word64
 
   -- Other events
   | Unknown Word64 Word16 -- timestamp, size
@@ -262,45 +245,30 @@ event kv = do
                 "START" -> return $ StartWindowCPUTime tid1 tag ts
                 "END" -> return $ StopWindowCPUTime tid1 tag ts
                 _ -> error $ "Invalid window location tag: " ++ loc
-        EVENT_PRE_RUN_THREAD -> do
+        EVENT_PRE_THREAD_CLOCK -> do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
             -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
             return $ StartThreadCPUTime tid ts
-        EVENT_POST_RUN_THREAD -> do
+        EVENT_POST_THREAD_CLOCK -> do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
             -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
             return $ StopThreadCPUTime tid ts
-        EVENT_PRE_RUN_THREAD_USER -> do
+        EVENT_PRE_THREAD_CTX_SWITCHES -> do
             tid <- word32be
-            return $ StartThreadUserTime tid ts
-        EVENT_POST_RUN_THREAD_USER -> do
+            return $ StartThreadCtxSwitches tid ts
+        EVENT_POST_THREAD_CTX_SWITCHES -> do
             tid <- word32be
-            return $ StopThreadUserTime tid ts
-        EVENT_PRE_RUN_THREAD_SYSTEM -> do
+            return $ StopThreadCtxSwitches tid ts
+        EVENT_PRE_THREAD_PAGE_FAULTS -> do
             tid <- word32be
-            return $ StartThreadSystemTime tid ts
-        EVENT_POST_RUN_THREAD_SYSTEM -> do
+            return $ StartThreadPageFaults tid ts
+        EVENT_POST_THREAD_PAGE_FAULTS -> do
             tid <- word32be
-            return $ StopThreadSystemTime tid ts
-        EVENT_THREAD_CTX_SWITCHES -> do
-            tid <- word32be
-            vol <- word64be
-            invol <- word64be
-            return $ ThreadCtxSwitches tid vol invol
-        EVENT_THREAD_PAGE_FAULTS -> do
-            tid <- word32be
-            minor <- word64be
-            major <- word64be
-            return $ ThreadPageFaults tid minor major
-        EVENT_THREAD_IO_BLOCKS -> do
-            tid <- word32be
-            ioIn <- word64be
-            ioOut <- word64be
-            return $ ThreadIOBlocks tid ioIn ioOut
+            return $ StopThreadPageFaults tid ts
         _ -> do
             -- Parser.fromEffect $ putStrLn ""
             let r = Map.lookup (fromIntegral eventId) kv
