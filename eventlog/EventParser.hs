@@ -182,6 +182,8 @@ parseDataHeader stream = do
 #define EVENT_POST_THREAD_PAGE_FAULTS    203
 #define EVENT_PRE_THREAD_CTX_SWITCHES    204
 #define EVENT_POST_THREAD_CTX_SWITCHES   205
+#define EVENT_PRE_THREAD_ALLOCATED       206
+#define EVENT_POST_THREAD_ALLOCATED      207
 
 data Event =
   -- RTS thread start/stop events
@@ -194,6 +196,8 @@ data Event =
   | StopThreadPageFaults Word32 Word64
   | StartThreadCtxSwitches Word32 Word64
   | StopThreadCtxSwitches Word32 Word64
+  | StartThreadAllocated Word32 Word64
+  | StopThreadAllocated Word32 Word64
 
   -- Other events
   | Unknown Word64 Word16 -- timestamp, size
@@ -269,6 +273,14 @@ event kv = do
         EVENT_POST_THREAD_PAGE_FAULTS -> do
             tid <- word32be
             return $ StopThreadPageFaults tid ts
+        EVENT_PRE_THREAD_ALLOCATED -> do
+            tid <- word32be
+            -- trace ("tid = " ++ show tid ++ " event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
+            return $ StartThreadAllocated tid ts
+        EVENT_POST_THREAD_ALLOCATED -> do
+            tid <- word32be
+            -- trace ("tid = " ++ show tid ++ " event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
+            return $ StopThreadAllocated tid ts
         _ -> do
             -- Parser.fromEffect $ putStrLn ""
             let r = Map.lookup (fromIntegral eventId) kv

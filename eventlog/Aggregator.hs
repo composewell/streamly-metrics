@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE CPP #-}
 module Aggregator
     ( translateThreadEvents
     , Counter (..)
@@ -30,6 +31,7 @@ data Counter =
       ThreadCPUTime
     | ThreadCtxVoluntary
     | ThreadPageFaultMinor
+    | ThreadAllocated
     deriving (Show, Eq, Ord)
 
 data Location = Start | Stop deriving Show
@@ -70,14 +72,12 @@ translateThreadEvents = Fold step initial extract
 
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
 
-    {-
     threadEvent mp tid ts ctr loc =
         pure $ Partial $ Tuple' mp [f "default"]
 
         where
 
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
-        -}
 
     windowStart mp tid tag ts ctr loc = do
         let mp1 = Map.alter alter tid mp
@@ -101,25 +101,32 @@ translateThreadEvents = Fold step initial extract
 
         f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
 
+#define START(start,ctr) \
+    step (Tuple' mp _) (start tid counter) = \
+        threadEventBcast mp tid counter ctr Start
+#define STOP(stop,ctr) \
+    step (Tuple' mp _) (stop tid counter) = \
+        threadEventBcast mp tid counter ctr Stop
+
     -- CPUTime
-    step (Tuple' mp _) (StartThreadCPUTime tid counter) =
-        threadEventBcast mp tid counter ThreadCPUTime Start
-    step (Tuple' mp _) (StopThreadCPUTime tid counter) =
-        threadEventBcast mp tid counter ThreadCPUTime Stop
+    START(StartThreadCPUTime, ThreadCPUTime)
+    STOP(StopThreadCPUTime, ThreadCPUTime)
+
     step (Tuple' mp _) (StartWindowCPUTime tid tag counter) =
         windowStart mp tid tag counter ThreadCPUTime Start
     step (Tuple' mp _) (StopWindowCPUTime tid tag counter) =
         windowEnd mp tid tag counter ThreadCPUTime Stop
 
-    step (Tuple' mp _) (StartThreadCtxSwitches tid counter) =
-        threadEventBcast mp tid counter ThreadCtxVoluntary Start
-    step (Tuple' mp _) (StopThreadCtxSwitches tid counter) =
-        threadEventBcast mp tid counter ThreadCtxVoluntary Stop
+    START(StartThreadCtxSwitches, ThreadCtxVoluntary)
+    STOP(StopThreadCtxSwitches, ThreadCtxVoluntary)
 
-    step (Tuple' mp _) (StartThreadPageFaults tid counter) =
-        threadEventBcast mp tid counter ThreadPageFaultMinor Start
-    step (Tuple' mp _) (StopThreadPageFaults tid counter) =
-        threadEventBcast mp tid counter ThreadPageFaultMinor Stop
+    START(StartThreadPageFaults, ThreadPageFaultMinor)
+    STOP(StopThreadPageFaults, ThreadPageFaultMinor)
+
+    step (Tuple' mp _) (StartThreadAllocated tid counter) =
+        threadEvent mp tid counter ThreadAllocated Start
+    step (Tuple' mp _) (StopThreadAllocated tid counter) =
+        threadEvent mp tid counter ThreadAllocated Stop
 
     step (Tuple' mp _) (Unknown _ _) =
         pure $ Partial $ Tuple' mp []
