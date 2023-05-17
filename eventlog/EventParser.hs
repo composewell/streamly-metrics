@@ -8,6 +8,7 @@ module EventParser
     )
 where
 
+-- import Debug.Trace
 import Data.Char (ord, chr)
 import Data.IntMap (IntMap)
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -265,11 +266,13 @@ event kv = do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
+            -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
             return $ StartThreadCPUTime tid ts
         EVENT_POST_RUN_THREAD -> do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
+            -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
             return $ StopThreadCPUTime tid ts
         EVENT_PRE_RUN_THREAD_USER -> do
             tid <- word32be

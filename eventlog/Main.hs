@@ -89,6 +89,7 @@ fromEvents ::
 fromEvents kv =
           Stream.unfoldMany Unfold.fromList
         . Stream.postscan translateThreadEvents
+        -- . Stream.trace print
         . parseEvents kv
 
 -- XXX Are the events for a particular thread guaranteed to come in order. What
