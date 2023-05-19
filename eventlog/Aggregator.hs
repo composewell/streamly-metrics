@@ -2,15 +2,13 @@
 {-# LANGUAGE CPP #-}
 module Aggregator
     ( translateThreadEvents
-    , Counter (..)
-    , Location (..)
     , collectThreadCounter
     )
 where
 
 import Data.Int (Int64)
 import Data.Word (Word32)
-import EventParser (Event (..))
+import EventParser (Event (..), Counter(..), Location(..))
 import Streamly.Internal.Data.Fold (Fold(..), Step(..))
 import Streamly.Internal.Data.Tuple.Strict (Tuple'(..))
 
@@ -20,21 +18,6 @@ import qualified Data.Set as Set
 -------------------------------------------------------------------------------
 -- Event processing
 -------------------------------------------------------------------------------
-
--- XXX We attach a user event to a thread by looking at the previous thread
--- start event. But when there are multiple capabilities this may not be
--- possible? We need to use the thread-id on the same capability as the user
--- event. Or we can emit the tid in the user event. How does ghc-events-analyze
--- handle this? or the user event can log the thread-id as part of the tag.
-
-data Counter =
-      ThreadCPUTime
-    | ThreadCtxVoluntary
-    | ThreadPageFaultMinor
-    | ThreadAllocated
-    deriving (Show, Eq, Ord)
-
-data Location = Start | Stop deriving Show
 
 -- XXX It would be more intuitive for scans if we use "Partial s b" instead of
 -- using extract. We can avoid having to save the result in state many a times.
@@ -60,7 +43,7 @@ translateThreadEvents = Fold step initial extract
             else []))
             -}
 
-    threadEventBcast mp tid ts ctr loc = do
+    threadEventBcast mp tid value ctr loc = do
         let r = Map.lookup tid mp
         case r of
             Just set ->
@@ -70,16 +53,18 @@ translateThreadEvents = Fold step initial extract
 
         where
 
-        f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
+        f x = ((tid, x, ctr), (loc, (fromIntegral value)))
 
-    threadEvent mp tid ts ctr loc =
+    {-
+    threadEvent mp tid value ctr loc =
         pure $ Partial $ Tuple' mp [f "default"]
 
         where
 
-        f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
+        f x = ((tid, x, ctr), (loc, (fromIntegral value)))
+    -}
 
-    windowStart mp tid tag ts ctr loc = do
+    windowStart mp tid tag value ctr = do
         let mp1 = Map.alter alter tid mp
         pure $ Partial $ Tuple' mp1 [f tag]
 
@@ -88,9 +73,9 @@ translateThreadEvents = Fold step initial extract
         alter Nothing = Just $ Set.singleton tag
         alter (Just set) = Just $ Set.insert tag set
 
-        f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
+        f x = ((tid, x, ctr), (Start, (fromIntegral value)))
 
-    windowEnd mp tid tag ts ctr loc = do
+    windowEnd mp tid tag value ctr = do
         let mp1 = Map.alter alter tid mp
         pure $ Partial $ Tuple' mp1 [f tag]
 
@@ -99,37 +84,17 @@ translateThreadEvents = Fold step initial extract
         alter Nothing = error "Window end when window does not exist"
         alter (Just set) = Just $ Set.delete tag set
 
-        f x = ((tid, x, ctr), (loc, (fromIntegral ts)))
+        f x = ((tid, x, ctr), (Stop, (fromIntegral value)))
 
-#define START(start,ctr) \
-    step (Tuple' mp _) (start tid counter) = \
-        threadEventBcast mp tid counter ctr Start
-#define STOP(stop,ctr) \
-    step (Tuple' mp _) (stop tid counter) = \
-        threadEventBcast mp tid counter ctr Stop
+    step (Tuple' mp _) (Event tid "" counter Start value) =
+        threadEventBcast mp tid value counter Start
+    step (Tuple' mp _) (Event tid "" counter Stop value) =
+        threadEventBcast mp tid value counter Stop
 
-    -- CPUTime
-    START(StartThreadCPUTime, ThreadCPUTime)
-    STOP(StopThreadCPUTime, ThreadCPUTime)
-
-    step (Tuple' mp _) (StartWindowCPUTime tid tag counter) =
-        windowStart mp tid tag counter ThreadCPUTime Start
-    step (Tuple' mp _) (StopWindowCPUTime tid tag counter) =
-        windowEnd mp tid tag counter ThreadCPUTime Stop
-
-    START(StartThreadCtxSwitches, ThreadCtxVoluntary)
-    STOP(StopThreadCtxSwitches, ThreadCtxVoluntary)
-
-    START(StartThreadPageFaults, ThreadPageFaultMinor)
-    STOP(StopThreadPageFaults, ThreadPageFaultMinor)
-
-    step (Tuple' mp _) (StartThreadAllocated tid counter) =
-        threadEvent mp tid counter ThreadAllocated Start
-    step (Tuple' mp _) (StopThreadAllocated tid counter) =
-        threadEvent mp tid counter ThreadAllocated Stop
-
-    step (Tuple' mp _) (Unknown _ _) =
-        pure $ Partial $ Tuple' mp []
+    step (Tuple' mp _) (Event tid tag counter Start value) =
+        windowStart mp tid tag value counter
+    step (Tuple' mp _) (Event tid tag counter Stop value) =
+        windowEnd mp tid tag value counter
 
     extract (Tuple' _ xs) = pure xs
 

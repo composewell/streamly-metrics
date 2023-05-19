@@ -1,15 +1,17 @@
 module Main (main) where
 
 import Aggregator
-    ( translateThreadEvents , collectThreadCounter, Counter, Location (..))
+    ( translateThreadEvents , collectThreadCounter)
 import System.Environment (getArgs)
+import Data.Either (isLeft)
 import Data.Int (Int64)
 import Data.Map (Map)
 import Data.Maybe (fromJust)
 import Data.Word (Word32)
 import Data.IntMap (IntMap)
 import Data.Word (Word8)
-import EventParser (parseLogHeader, parseDataHeader, parseEvents)
+import EventParser
+    (parseLogHeader, parseDataHeader, parseEvents, Counter(..) , Location(..))
 import Streamly.Data.Array (Array)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.StreamK (StreamK)
@@ -47,6 +49,9 @@ secondMaybe f = fmap f1 (Fold.unzip (fmap fromJust Fold.the) f)
 double :: Int -> Double
 double = fromIntegral
 
+untilLeft :: Monad m => Fold m b1 b2 -> Fold m (Either b1 b1) b2
+untilLeft f = Fold.takeEndBy isLeft (Fold.lmap (either id id) f)
+
 -- Statistics collection for each counter
 {-# INLINE stats #-}
 stats :: Fold IO Int64 [(String, Int)]
@@ -62,6 +67,14 @@ stats =
         , fmap (\x -> ("stddev", round x)) (Fold.lmap double Fold.stdDev)
         ]
 
+{-# INLINE threadStats #-}
+threadStats :: Fold IO (Either Int64 Int64) [(String, Int)]
+threadStats = untilLeft stats
+
+{-# INLINE windowStats #-}
+windowStats :: Fold IO (Either Int64 Int64) [(String, Int)]
+windowStats = Fold.many (untilLeft Fold.sum) stats
+
 -- input (tid, counter)
 -- output "Map tid x" where x is "Map (tid, window tag, counter name) ()"
 {-# INLINE toStats #-}
@@ -74,12 +87,18 @@ toStats = Fold.demuxKvToMap (\k -> pure (f1 k))
 
     where
 
-    f1 k1 =
+    f k1 st =
           Fold.lmap (\x -> (k1, x))
+        -- $ Fold.lmapM (\x -> print x >> pure x)
         $ Fold.scanMaybe (secondMaybe collectThreadCounter)
-        $ Fold.postscan (second stats)
+        $ Fold.postscan (second (Fold.lmap Right st))
         -- $ Fold.filter (\kv -> snd (snd kv !! 0) > 50000)
         $ Fold.drainMapM print
+
+    -- For the main thread
+    f1 k1@(_, "default", _) = f k1 threadStats
+    -- For windows inside the thread
+    f1 k1@(_, _, _) = f k1 windowStats
 
 {-# INLINE fromEvents #-}
 fromEvents ::

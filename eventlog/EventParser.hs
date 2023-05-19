@@ -4,6 +4,8 @@ module EventParser
       parseLogHeader
     , parseDataHeader
     , parseEvents
+    , Counter (..)
+    , Location (..)
     , Event (..)
     )
 where
@@ -11,7 +13,7 @@ where
 -- import Debug.Trace
 import Data.Char (ord, chr)
 import Data.IntMap (IntMap)
-import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Word (Word8, Word32, Word64)
 import Streamly.Data.Array (Array)
 import Streamly.Data.Parser (Parser)
 import Streamly.Data.ParserK (ParserK)
@@ -185,29 +187,24 @@ parseDataHeader stream = do
 #define EVENT_PRE_THREAD_ALLOCATED       206
 #define EVENT_POST_THREAD_ALLOCATED      207
 
-data Event =
-  -- RTS thread start/stop events
-    StartThreadCPUTime Word32 Word64 -- tid, cputime
-  | StopThreadCPUTime Word32 Word64
-  | StartWindowCPUTime Word32 String Word64 -- tid, windowtag, cputime
-  | StopWindowCPUTime Word32 String Word64
+-- XXX We attach a user event to a thread by looking at the previous thread
+-- start event. But when there are multiple capabilities this may not be
+-- possible? We need to use the thread-id on the same capability as the user
+-- event. Or we can emit the tid in the user event. How does ghc-events-analyze
+-- handle this? or the user event can log the thread-id as part of the tag.
 
-  | StartThreadPageFaults Word32 Word64
-  | StopThreadPageFaults Word32 Word64
-  | StartThreadCtxSwitches Word32 Word64
-  | StopThreadCtxSwitches Word32 Word64
-  | StartThreadAllocated Word32 Word64
-  | StopThreadAllocated Word32 Word64
+data Counter =
+      ThreadCPUTime
+    | ThreadCtxVoluntary
+    | ThreadPageFaultMinor
+    | ThreadAllocated
+    deriving (Show, Eq, Ord)
 
-  -- Other events
-  | Unknown Word64 Word16 -- timestamp, size
-  deriving Show
+-- data Location = Enter | Exit | Resume | Suspend deriving Show
+data Location = Start | Stop deriving Show
 
-isKnown :: Event -> Bool
-isKnown ev =
-    case ev of
-        Unknown _ _ -> False
-        _ -> True
+-- Event tid window counter start/stop value
+data Event = Event Word32 String Counter Location Word64 deriving Show
 
 -- XXX We can ensure that the required size of data is compacted into the next
 -- array and then use a more efficient single array parser which only passes
@@ -221,12 +218,12 @@ isKnown ev =
 --  *       [Word16]       -- length of the rest (for variable-sized events only)
 --  *       ... extra event-specific info ...
 {-# INLINE event #-}
-event :: IntMap Int -> Parser Word8 IO Event
+event :: IntMap Int -> Parser Word8 IO (Maybe Event)
 event kv = do
     eventId <- word16be
     ts <- word64be
     -- XXX This does not get executed if we error out
-    -- Parser.fromEffect $ putStrLn $ "event = " ++ show eventId ++ " ts = " ++ show ts
+    -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
     case eventId of
         {-
         EVENT_RUN_THREAD -> do
@@ -239,48 +236,61 @@ event kv = do
         -}
         EVENT_USER_MSG -> do
             len <- word16be
-            msg <- Parser.takeEQ (fromIntegral len) (Fold.lmap (chr . fromIntegral) Fold.toList)
-            let (tid, rest) = span (/= ':') msg
-                (loc, rest1) = span (/= ':') (drop 1 rest)
-                tag = drop 1 rest1
-                tid1 = read (drop 9 tid) :: Word32
+            tid <- word32be
+            ctrType <- word16be
+            msg <- Parser.takeEQ
+                        (fromIntegral (len - 6))
+                        (Fold.lmap (chr . fromIntegral) Fold.toList)
+            let (loc, rest) = span (/= ':') msg
+                tag = drop 1 rest
             -- Parser.fromEffect $ putStrLn $ "tid = " ++ show tid1 ++ " loc = " ++ loc ++ " tag = " ++ tag
+            let counterId =
+                    case ctrType of
+                        EVENT_PRE_THREAD_CLOCK -> ThreadCPUTime
+                        EVENT_PRE_THREAD_ALLOCATED -> ThreadAllocated
+                        _ -> error "Invalid event in user window"
             case loc of
-                "START" -> return $ StartWindowCPUTime tid1 tag ts
-                "END" -> return $ StopWindowCPUTime tid1 tag ts
+                "START" -> do
+                    let ev = Event tid tag counterId Start ts
+                    -- trace ("Parsed: = " ++ show ev) (return ())
+                    return $ Just ev
+                "END" -> do
+                    let ev = Event tid tag counterId Stop ts
+                    -- trace ("Parsed: = " ++ show ev) (return ())
+                    return $ Just ev
                 _ -> error $ "Invalid window location tag: " ++ loc
         EVENT_PRE_THREAD_CLOCK -> do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
             -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ StartThreadCPUTime tid ts
+            return $ Just $ Event tid "" ThreadCPUTime Start ts
         EVENT_POST_THREAD_CLOCK -> do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
             -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ StopThreadCPUTime tid ts
+            return $ Just $ Event tid "" ThreadCPUTime Stop ts
         EVENT_PRE_THREAD_CTX_SWITCHES -> do
             tid <- word32be
-            return $ StartThreadCtxSwitches tid ts
+            return $ Just $ Event tid "" ThreadCtxVoluntary Start ts
         EVENT_POST_THREAD_CTX_SWITCHES -> do
             tid <- word32be
-            return $ StopThreadCtxSwitches tid ts
+            return $ Just $ Event tid "" ThreadCtxVoluntary Stop ts
         EVENT_PRE_THREAD_PAGE_FAULTS -> do
             tid <- word32be
-            return $ StartThreadPageFaults tid ts
+            return $ Just $ Event tid "" ThreadPageFaultMinor Start ts
         EVENT_POST_THREAD_PAGE_FAULTS -> do
             tid <- word32be
-            return $ StopThreadPageFaults tid ts
+            return $ Just $ Event tid "" ThreadPageFaultMinor Stop ts
         EVENT_PRE_THREAD_ALLOCATED -> do
             tid <- word32be
             -- trace ("tid = " ++ show tid ++ " event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ StartThreadAllocated tid ts
+            return $ Just $ Event tid "" ThreadAllocated Start ts
         EVENT_POST_THREAD_ALLOCATED -> do
             tid <- word32be
             -- trace ("tid = " ++ show tid ++ " event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ StopThreadAllocated tid ts
+            return $ Just $ Event tid "" ThreadAllocated Stop ts
         _ -> do
             -- Parser.fromEffect $ putStrLn ""
             let r = Map.lookup (fromIntegral eventId) kv
@@ -292,12 +302,12 @@ event kv = do
                         else return x
                     Nothing -> error $ "Event not in the header: " ++ show eventId
             _ <- Parser.takeEQ len Fold.drain
-            return $ Unknown ts eventId
+            return Nothing
 
 {-# INLINE parseEvents #-}
 parseEvents :: IntMap Int -> StreamK IO (Array Word8) -> Stream IO Event
 parseEvents kv =
-      Stream.filter isKnown
+      Stream.catMaybes
     . Stream.catRights
     . Stream.parseMany (event kv)
     . Stream.unfoldMany Array.reader
