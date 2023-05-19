@@ -201,7 +201,7 @@ data Counter =
     deriving (Show, Eq, Ord)
 
 -- data Location = Enter | Exit | Resume | Suspend deriving Show
-data Location = Start | Stop deriving Show
+data Location = Resume | Suspend deriving Show
 
 -- Event tid window counter start/stop value
 data Event = Event Word32 String Counter Location Word64 deriving Show
@@ -251,11 +251,11 @@ event kv = do
                         _ -> error "Invalid event in user window"
             case loc of
                 "START" -> do
-                    let ev = Event tid tag counterId Start ts
+                    let ev = Event tid tag counterId Resume ts
                     -- trace ("Parsed: = " ++ show ev) (return ())
                     return $ Just ev
                 "END" -> do
-                    let ev = Event tid tag counterId Stop ts
+                    let ev = Event tid tag counterId Suspend ts
                     -- trace ("Parsed: = " ++ show ev) (return ())
                     return $ Just ev
                 _ -> error $ "Invalid window location tag: " ++ loc
@@ -264,33 +264,33 @@ event kv = do
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
             -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ Just $ Event tid "" ThreadCPUTime Start ts
+            return $ Just $ Event tid "" ThreadCPUTime Resume ts
         EVENT_POST_THREAD_CLOCK -> do
             tid <- word32be
             -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
             -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
             -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ Just $ Event tid "" ThreadCPUTime Stop ts
+            return $ Just $ Event tid "" ThreadCPUTime Suspend ts
         EVENT_PRE_THREAD_CTX_SWITCHES -> do
             tid <- word32be
-            return $ Just $ Event tid "" ThreadCtxVoluntary Start ts
+            return $ Just $ Event tid "" ThreadCtxVoluntary Resume ts
         EVENT_POST_THREAD_CTX_SWITCHES -> do
             tid <- word32be
-            return $ Just $ Event tid "" ThreadCtxVoluntary Stop ts
+            return $ Just $ Event tid "" ThreadCtxVoluntary Suspend ts
         EVENT_PRE_THREAD_PAGE_FAULTS -> do
             tid <- word32be
-            return $ Just $ Event tid "" ThreadPageFaultMinor Start ts
+            return $ Just $ Event tid "" ThreadPageFaultMinor Resume ts
         EVENT_POST_THREAD_PAGE_FAULTS -> do
             tid <- word32be
-            return $ Just $ Event tid "" ThreadPageFaultMinor Stop ts
+            return $ Just $ Event tid "" ThreadPageFaultMinor Suspend ts
         EVENT_PRE_THREAD_ALLOCATED -> do
             tid <- word32be
             -- trace ("tid = " ++ show tid ++ " event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ Just $ Event tid "" ThreadAllocated Start ts
+            return $ Just $ Event tid "" ThreadAllocated Resume ts
         EVENT_POST_THREAD_ALLOCATED -> do
             tid <- word32be
             -- trace ("tid = " ++ show tid ++ " event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ Just $ Event tid "" ThreadAllocated Stop ts
+            return $ Just $ Event tid "" ThreadAllocated Suspend ts
         _ -> do
             -- Parser.fromEffect $ putStrLn ""
             let r = Map.lookup (fromIntegral eventId) kv

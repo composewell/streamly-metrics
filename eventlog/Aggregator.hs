@@ -73,7 +73,7 @@ translateThreadEvents = Fold step initial extract
         alter Nothing = Just $ Set.singleton tag
         alter (Just set) = Just $ Set.insert tag set
 
-        f x = ((tid, x, ctr), (Start, (fromIntegral value)))
+        f x = ((tid, x, ctr), (Resume, (fromIntegral value)))
 
     windowEnd mp tid tag value ctr = do
         let mp1 = Map.alter alter tid mp
@@ -84,16 +84,16 @@ translateThreadEvents = Fold step initial extract
         alter Nothing = error "Window end when window does not exist"
         alter (Just set) = Just $ Set.delete tag set
 
-        f x = ((tid, x, ctr), (Stop, (fromIntegral value)))
+        f x = ((tid, x, ctr), (Suspend, (fromIntegral value)))
 
-    step (Tuple' mp _) (Event tid "" counter Start value) =
-        threadEventBcast mp tid value counter Start
-    step (Tuple' mp _) (Event tid "" counter Stop value) =
-        threadEventBcast mp tid value counter Stop
+    step (Tuple' mp _) (Event tid "" counter Resume value) =
+        threadEventBcast mp tid value counter Resume
+    step (Tuple' mp _) (Event tid "" counter Suspend value) =
+        threadEventBcast mp tid value counter Suspend
 
-    step (Tuple' mp _) (Event tid tag counter Start value) =
+    step (Tuple' mp _) (Event tid tag counter Resume value) =
         windowStart mp tid tag value counter
-    step (Tuple' mp _) (Event tid tag counter Stop value) =
+    step (Tuple' mp _) (Event tid tag counter Suspend value) =
         windowEnd mp tid tag value counter
 
     extract (Tuple' _ xs) = pure xs
@@ -108,10 +108,10 @@ collectThreadCounter = Fold step initial extract
 
     initial = pure $ Partial CollectInit
 
-    step CollectInit (Start, v) =
+    step CollectInit (Resume, v) =
         pure $ Partial $ CollectPartial v
-    step CollectInit stat@(Stop, _) = do
-        putStrLn $ "Error: Stop event when counter is not initialized." ++ show stat
+    step CollectInit stat@(Suspend, _) = do
+        putStrLn $ "Error: Suspend event when counter is not initialized." ++ show stat
         pure $ Partial CollectInit
         {-
     step CollectInit (OneShot, v) =
@@ -119,17 +119,17 @@ collectThreadCounter = Fold step initial extract
         -}
 
     -- Same handling as CollectInit
-    step (CollectDone _) (Start, v)
+    step (CollectDone _) (Resume, v)
         = pure $ Partial $ CollectPartial v
-    step acc@(CollectDone _) stat@(Stop, _) = do
-        putStrLn $ "Error: Stop event when counter is not initialized." ++ show stat
+    step acc@(CollectDone _) stat@(Suspend, _) = do
+        putStrLn $ "Error: Suspend event when counter is not initialized." ++ show stat
         pure $ Partial acc
         {-
     step (CollectDone _) (OneShot, v) =
         pure $ Partial $ CollectDone v
         -}
 
-    step (CollectPartial old) (Stop, new) = do
+    step (CollectPartial old) (Suspend, new) = do
             -- putStrLn $ "new = " ++ show new ++ " old = " ++ show old
             let delta = new - old
             if delta < 0
@@ -137,7 +137,7 @@ collectThreadCounter = Fold step initial extract
                         ++  "new = " ++ show new ++ " old = " ++ show old
                 else pure ()
             pure $ Partial $ CollectDone delta
-    step (CollectPartial _) stat@(Start, v) = do
+    step (CollectPartial _) stat@(Resume, v) = do
         putStrLn $ "Error: Got a duplicate thread start event " ++ show stat
         pure $ Partial $ CollectPartial v
         {-
