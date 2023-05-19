@@ -84,24 +84,27 @@ translateThreadEvents = Fold step initial extract
         alter Nothing = error "Window end when window does not exist"
         alter (Just set) = Just $ Set.delete tag set
 
-        f x = ((tid, x, ctr), (Suspend, (fromIntegral value)))
+        f x = ((tid, x, ctr), (Exit, (fromIntegral value)))
 
     step (Tuple' mp _) (Event tid "" counter Resume value) =
         threadEventBcast mp tid value counter Resume
     step (Tuple' mp _) (Event tid "" counter Suspend value) =
         threadEventBcast mp tid value counter Suspend
+    step _ (Event _ "" _ Exit _) = error "Unexpected Exit event"
 
     step (Tuple' mp _) (Event tid tag counter Resume value) =
         windowStart mp tid tag value counter
     step (Tuple' mp _) (Event tid tag counter Suspend value) =
         windowEnd mp tid tag value counter
+    step _ (Event _ _ _ Exit _) = error "Unexpected Exit event"
 
     extract (Tuple' _ xs) = pure xs
 
-data CollectState = CollectInit | CollectPartial Int64 | CollectDone Int64
+data CollectState =
+    CollectInit | CollectPartial Int64 | CollectDone Int64 | CollectExit Int64
 
 {-# INLINE collectThreadCounter #-}
-collectThreadCounter :: Fold IO (Location, Int64) (Maybe Int64)
+collectThreadCounter :: Fold IO (Location, Int64) (Maybe (Either Int64 Int64))
 collectThreadCounter = Fold step initial extract
 
     where
@@ -112,6 +115,9 @@ collectThreadCounter = Fold step initial extract
         pure $ Partial $ CollectPartial v
     step CollectInit stat@(Suspend, _) = do
         putStrLn $ "Error: Suspend event when counter is not initialized." ++ show stat
+        pure $ Partial CollectInit
+    step CollectInit stat@(Exit, _) = do
+        putStrLn $ "Error: Exit event when counter is not initialized." ++ show stat
         pure $ Partial CollectInit
         {-
     step CollectInit (OneShot, v) =
@@ -124,19 +130,39 @@ collectThreadCounter = Fold step initial extract
     step acc@(CollectDone _) stat@(Suspend, _) = do
         putStrLn $ "Error: Suspend event when counter is not initialized." ++ show stat
         pure $ Partial acc
+    step acc@(CollectDone _) stat@(Exit, _) = do
+        putStrLn $ "Error: Exit event when counter is not initialized." ++ show stat
+        pure $ Partial acc
         {-
     step (CollectDone _) (OneShot, v) =
         pure $ Partial $ CollectDone v
         -}
 
+    step (CollectExit _) (Resume, v)
+        = pure $ Partial $ CollectPartial v
+    step acc@(CollectExit _) stat@(Suspend, _) = do
+        putStrLn $ "CollectExit: Suspend event when counter is not initialized." ++ show stat
+        pure $ Partial acc
+    step acc@(CollectExit _) stat@(Exit, _) = do
+        putStrLn $ "CollectExit: Exit event when counter is not initialized." ++ show stat
+        pure $ Partial acc
+
     step (CollectPartial old) (Suspend, new) = do
             -- putStrLn $ "new = " ++ show new ++ " old = " ++ show old
             let delta = new - old
             if delta < 0
-                then error $ "counter delta is negative:"
+                then error $ "Suspend: counter delta is negative:"
                         ++  "new = " ++ show new ++ " old = " ++ show old
                 else pure ()
             pure $ Partial $ CollectDone delta
+    step (CollectPartial old) (Exit, new) = do
+            -- putStrLn $ "new = " ++ show new ++ " old = " ++ show old
+            let delta = new - old
+            if delta < 0
+                then error $ "Exit: counter delta is negative:"
+                        ++  "new = " ++ show new ++ " old = " ++ show old
+                else pure ()
+            pure $ Partial $ CollectExit delta
     step (CollectPartial _) stat@(Resume, v) = do
         putStrLn $ "Error: Got a duplicate thread start event " ++ show stat
         pure $ Partial $ CollectPartial v
@@ -148,4 +174,5 @@ collectThreadCounter = Fold step initial extract
 
     extract CollectInit = pure Nothing
     extract (CollectPartial _) = pure Nothing
-    extract (CollectDone v) = pure (Just v)
+    extract (CollectDone v) = pure (Just (Right v))
+    extract (CollectExit v) = pure (Just (Left v))

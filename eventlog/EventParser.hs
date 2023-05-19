@@ -201,7 +201,7 @@ data Counter =
     deriving (Show, Eq, Ord)
 
 -- data Location = Enter | Exit | Resume | Suspend deriving Show
-data Location = Resume | Suspend deriving Show
+data Location = Resume | Suspend | Exit deriving Show
 
 -- Event tid window counter start/stop value
 data Event = Event Word32 String Counter Location Word64 deriving Show
