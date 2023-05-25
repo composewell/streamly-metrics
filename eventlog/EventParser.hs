@@ -186,6 +186,18 @@ parseDataHeader stream = do
 #define EVENT_POST_THREAD_CTX_SWITCHES   205
 #define EVENT_PRE_THREAD_ALLOCATED       206
 #define EVENT_POST_THREAD_ALLOCATED      207
+#define EVENT_PRE_HW_CACHE_L1I           208
+#define EVENT_POST_HW_CACHE_L1I          209
+#define EVENT_PRE_HW_CACHE_L1I_MISS      210
+#define EVENT_POST_HW_CACHE_L1I_MISS     211
+#define EVENT_PRE_HW_CACHE_MISSES        212
+#define EVENT_POST_HW_CACHE_MISSES       213
+#define EVENT_PRE_HW_INSTRUCTIONS        214
+#define EVENT_POST_HW_INSTRUCTIONS       215
+#define EVENT_PRE_HW_BRANCH_MISSES       216
+#define EVENT_POST_HW_BRANCH_MISSES      217
+#define EVENT_PRE_THREAD_CPU_MIGRATIONS  218
+#define EVENT_POST_THREAD_CPU_MIGRATIONS 219
 
 -- XXX We attach a user event to a thread by looking at the previous thread
 -- start event. But when there are multiple capabilities this may not be
@@ -198,6 +210,13 @@ data Counter =
     | ThreadCtxVoluntary
     | ThreadPageFaultMinor
     | ThreadAllocated
+    | L1iCountHit
+    | L1iCountMiss
+    | ThreadCPUMigrations
+    | BranchMisses
+    | Instructions
+    | LastLevelCacheMisses
+
     deriving (Show, Eq, Ord)
 
 -- data Location = Enter | Exit | Resume | Suspend deriving Show
@@ -248,6 +267,15 @@ event kv = do
                     case ctrType of
                         EVENT_PRE_THREAD_CLOCK -> ThreadCPUTime
                         EVENT_PRE_THREAD_ALLOCATED -> ThreadAllocated
+                        EVENT_PRE_HW_CACHE_L1I -> L1iCountHit
+                        EVENT_PRE_HW_CACHE_L1I_MISS -> L1iCountMiss
+                        EVENT_PRE_THREAD_PAGE_FAULTS -> ThreadPageFaultMinor
+                        EVENT_PRE_THREAD_CTX_SWITCHES -> ThreadCtxVoluntary
+                        EVENT_PRE_HW_CACHE_MISSES -> LastLevelCacheMisses
+                        EVENT_PRE_HW_INSTRUCTIONS -> Instructions
+                        EVENT_PRE_HW_BRANCH_MISSES -> BranchMisses
+                        EVENT_PRE_THREAD_CPU_MIGRATIONS -> ThreadCPUMigrations
+                        
                         _ -> error "Invalid event in user window"
             case loc of
                 "START" -> do
@@ -291,6 +319,42 @@ event kv = do
             tid <- word32be
             -- trace ("tid = " ++ show tid ++ " event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
             return $ Just $ Event tid "" ThreadAllocated Suspend ts
+        EVENT_PRE_HW_CACHE_L1I -> do
+            tid <- word32be
+            return $ Just $ Event tid "" L1iCountHit Resume ts
+        EVENT_POST_HW_CACHE_L1I -> do
+            tid <- word32be
+            return $ Just $ Event tid "" L1iCountHit Suspend ts
+        EVENT_PRE_HW_CACHE_L1I_MISS -> do
+            tid <- word32be
+            return $ Just $ Event tid "" L1iCountMiss Resume ts
+        EVENT_POST_HW_CACHE_L1I_MISS -> do
+            tid <- word32be
+            return $ Just $ Event tid "" L1iCountMiss Suspend ts
+        EVENT_PRE_HW_CACHE_MISSES -> do
+            tid <- word32be
+            return $ Just $ Event tid "" LastLevelCacheMisses Resume ts
+        EVENT_POST_HW_CACHE_MISSES -> do
+            tid <- word32be
+            return $ Just $ Event tid "" LastLevelCacheMisses Suspend ts
+        EVENT_PRE_HW_INSTRUCTIONS -> do
+            tid <- word32be
+            return $ Just $ Event tid "" Instructions Resume ts
+        EVENT_POST_HW_INSTRUCTIONS -> do
+            tid <- word32be
+            return $ Just $ Event tid "" Instructions Suspend ts
+        EVENT_PRE_HW_BRANCH_MISSES -> do
+            tid <- word32be
+            return $ Just $ Event tid "" BranchMisses Resume ts
+        EVENT_POST_HW_BRANCH_MISSES -> do
+            tid <- word32be
+            return $ Just $ Event tid "" BranchMisses Suspend ts
+        EVENT_PRE_THREAD_CPU_MIGRATIONS -> do
+            tid <- word32be
+            return $ Just $ Event tid "" ThreadCPUMigrations Resume ts
+        EVENT_POST_THREAD_CPU_MIGRATIONS -> do
+            tid <- word32be
+            return $ Just $ Event tid "" ThreadCPUMigrations Suspend ts
         _ -> do
             -- Parser.fromEffect $ putStrLn ""
             let r = Map.lookup (fromIntegral eventId) kv
