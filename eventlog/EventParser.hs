@@ -190,14 +190,18 @@ parseDataHeader stream = do
 #define EVENT_POST_HW_CACHE_L1I          209
 #define EVENT_PRE_HW_CACHE_L1I_MISS      210
 #define EVENT_POST_HW_CACHE_L1I_MISS     211
-#define EVENT_PRE_HW_CACHE_MISSES        212
-#define EVENT_POST_HW_CACHE_MISSES       213
-#define EVENT_PRE_HW_INSTRUCTIONS        214
-#define EVENT_POST_HW_INSTRUCTIONS       215
-#define EVENT_PRE_HW_BRANCH_MISSES       216
-#define EVENT_POST_HW_BRANCH_MISSES      217
-#define EVENT_PRE_THREAD_CPU_MIGRATIONS  218
-#define EVENT_POST_THREAD_CPU_MIGRATIONS 219
+#define EVENT_PRE_HW_CACHE_L1D           212
+#define EVENT_POST_HW_CACHE_L1D          213
+#define EVENT_PRE_HW_CACHE_L1D_MISS      214
+#define EVENT_POST_HW_CACHE_L1D_MISS     215
+#define EVENT_PRE_HW_CACHE_MISSES        216
+#define EVENT_POST_HW_CACHE_MISSES       217
+#define EVENT_PRE_HW_INSTRUCTIONS        218
+#define EVENT_POST_HW_INSTRUCTIONS       219
+#define EVENT_PRE_HW_BRANCH_MISSES       220
+#define EVENT_POST_HW_BRANCH_MISSES      221
+#define EVENT_PRE_THREAD_CPU_MIGRATIONS  222
+#define EVENT_POST_THREAD_CPU_MIGRATIONS 223
 
 -- XXX We attach a user event to a thread by looking at the previous thread
 -- start event. But when there are multiple capabilities this may not be
@@ -210,8 +214,10 @@ data Counter =
     | ThreadCtxVoluntary
     | ThreadPageFaultMinor
     | ThreadAllocated
-    | L1iCountHit
-    | L1iCountMiss
+    | L1iCacheHit
+    | L1iCacheMiss
+    | L1dCacheHit
+    | L1dCacheMiss
     | ThreadCPUMigrations
     | BranchMisses
     | Instructions
@@ -267,8 +273,10 @@ event kv = do
                     case ctrType of
                         EVENT_PRE_THREAD_CLOCK -> ThreadCPUTime
                         EVENT_PRE_THREAD_ALLOCATED -> ThreadAllocated
-                        EVENT_PRE_HW_CACHE_L1I -> L1iCountHit
-                        EVENT_PRE_HW_CACHE_L1I_MISS -> L1iCountMiss
+                        EVENT_PRE_HW_CACHE_L1I -> L1iCacheHit
+                        EVENT_PRE_HW_CACHE_L1I_MISS -> L1iCacheMiss
+                        EVENT_PRE_HW_CACHE_L1D -> L1dCacheHit
+                        EVENT_PRE_HW_CACHE_L1D_MISS -> L1dCacheMiss
                         EVENT_PRE_THREAD_PAGE_FAULTS -> ThreadPageFaultMinor
                         EVENT_PRE_THREAD_CTX_SWITCHES -> ThreadCtxVoluntary
                         EVENT_PRE_HW_CACHE_MISSES -> LastLevelCacheMisses
@@ -321,16 +329,28 @@ event kv = do
             return $ Just $ Event tid "" ThreadAllocated Suspend ts
         EVENT_PRE_HW_CACHE_L1I -> do
             tid <- word32be
-            return $ Just $ Event tid "" L1iCountHit Resume ts
+            return $ Just $ Event tid "" L1iCacheHit Resume ts
         EVENT_POST_HW_CACHE_L1I -> do
             tid <- word32be
-            return $ Just $ Event tid "" L1iCountHit Suspend ts
+            return $ Just $ Event tid "" L1iCacheHit Suspend ts
+        EVENT_PRE_HW_CACHE_L1D -> do
+            tid <- word32be
+            return $ Just $ Event tid "" L1dCacheHit Resume ts
+        EVENT_POST_HW_CACHE_L1D -> do
+            tid <- word32be
+            return $ Just $ Event tid "" L1dCacheHit Suspend ts
         EVENT_PRE_HW_CACHE_L1I_MISS -> do
             tid <- word32be
-            return $ Just $ Event tid "" L1iCountMiss Resume ts
+            return $ Just $ Event tid "" L1iCacheMiss Resume ts
         EVENT_POST_HW_CACHE_L1I_MISS -> do
             tid <- word32be
-            return $ Just $ Event tid "" L1iCountMiss Suspend ts
+            return $ Just $ Event tid "" L1iCacheMiss Suspend ts
+        EVENT_PRE_HW_CACHE_L1D_MISS -> do
+            tid <- word32be
+            return $ Just $ Event tid "" L1dCacheMiss Resume ts
+        EVENT_POST_HW_CACHE_L1D_MISS -> do
+            tid <- word32be
+            return $ Just $ Event tid "" L1dCacheMiss Suspend ts
         EVENT_PRE_HW_CACHE_MISSES -> do
             tid <- word32be
             return $ Just $ Event tid "" LastLevelCacheMisses Resume ts
