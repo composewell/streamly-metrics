@@ -53,7 +53,7 @@ translateThreadEvents = Fold step initial extract
 
         where
 
-        f x = ((tid, x, ctr), (loc, (fromIntegral value)))
+        f tag = ((tid, tag, ctr), (loc, (fromIntegral value)))
 
     {-
     threadEvent mp tid value ctr loc =
