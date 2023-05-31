@@ -13,7 +13,7 @@ where
 -- import Debug.Trace
 import Data.Char (ord, chr)
 import Data.IntMap (IntMap)
-import Data.Word (Word8, Word32, Word64)
+import Data.Word (Word8, Word16, Word32, Word64)
 import Streamly.Data.Array (Array)
 import Streamly.Data.Parser (Parser)
 import Streamly.Data.ParserK (ParserK)
@@ -231,6 +231,36 @@ data Location = Resume | Suspend | Exit deriving Show
 -- Event tid window counter start/stop value
 data Event = Event Word32 String Counter Location Word64 deriving Show
 
+eventToCounter :: Word16 -> Maybe (Counter, Location)
+eventToCounter ev =
+    case ev of
+        EVENT_PRE_THREAD_CLOCK -> Just (ThreadCPUTime, Resume)
+        EVENT_PRE_THREAD_ALLOCATED -> Just (ThreadAllocated, Resume)
+        EVENT_PRE_HW_CACHE_L1I -> Just (L1iCacheHit, Resume)
+        EVENT_PRE_HW_CACHE_L1I_MISS -> Just (L1iCacheMiss, Resume)
+        EVENT_PRE_HW_CACHE_L1D -> Just (L1dCacheHit, Resume)
+        EVENT_PRE_HW_CACHE_L1D_MISS -> Just (L1dCacheMiss, Resume)
+        EVENT_PRE_THREAD_PAGE_FAULTS -> Just (ThreadPageFaultMinor, Resume)
+        EVENT_PRE_THREAD_CTX_SWITCHES -> Just (ThreadCtxVoluntary, Resume)
+        EVENT_PRE_HW_CACHE_MISSES -> Just (LastLevelCacheMisses, Resume)
+        EVENT_PRE_HW_INSTRUCTIONS -> Just (Instructions, Resume)
+        EVENT_PRE_HW_BRANCH_MISSES -> Just (BranchMisses, Resume)
+        EVENT_PRE_THREAD_CPU_MIGRATIONS -> Just (ThreadCPUMigrations, Resume)
+
+        EVENT_POST_THREAD_CLOCK -> Just (ThreadCPUTime, Suspend)
+        EVENT_POST_THREAD_ALLOCATED -> Just (ThreadAllocated, Suspend)
+        EVENT_POST_HW_CACHE_L1I -> Just (L1iCacheHit, Suspend)
+        EVENT_POST_HW_CACHE_L1I_MISS -> Just (L1iCacheMiss, Suspend)
+        EVENT_POST_HW_CACHE_L1D -> Just (L1dCacheHit, Suspend)
+        EVENT_POST_HW_CACHE_L1D_MISS -> Just (L1dCacheMiss, Suspend)
+        EVENT_POST_THREAD_PAGE_FAULTS -> Just (ThreadPageFaultMinor, Suspend)
+        EVENT_POST_THREAD_CTX_SWITCHES -> Just (ThreadCtxVoluntary, Suspend)
+        EVENT_POST_HW_CACHE_MISSES -> Just (LastLevelCacheMisses, Suspend)
+        EVENT_POST_HW_INSTRUCTIONS -> Just (Instructions, Suspend)
+        EVENT_POST_HW_BRANCH_MISSES -> Just (BranchMisses, Suspend)
+        EVENT_POST_THREAD_CPU_MIGRATIONS -> Just (ThreadCPUMigrations, Suspend)
+        _ -> Nothing
+
 -- XXX We can ensure that the required size of data is compacted into the next
 -- array and then use a more efficient single array parser which only passes
 -- around pos instead of the array.
@@ -270,20 +300,8 @@ event kv = do
                 tag = drop 1 rest
             -- Parser.fromEffect $ putStrLn $ "tid = " ++ show tid1 ++ " loc = " ++ loc ++ " tag = " ++ tag
             let counterId =
-                    case ctrType of
-                        EVENT_PRE_THREAD_CLOCK -> ThreadCPUTime
-                        EVENT_PRE_THREAD_ALLOCATED -> ThreadAllocated
-                        EVENT_PRE_HW_CACHE_L1I -> L1iCacheHit
-                        EVENT_PRE_HW_CACHE_L1I_MISS -> L1iCacheMiss
-                        EVENT_PRE_HW_CACHE_L1D -> L1dCacheHit
-                        EVENT_PRE_HW_CACHE_L1D_MISS -> L1dCacheMiss
-                        EVENT_PRE_THREAD_PAGE_FAULTS -> ThreadPageFaultMinor
-                        EVENT_PRE_THREAD_CTX_SWITCHES -> ThreadCtxVoluntary
-                        EVENT_PRE_HW_CACHE_MISSES -> LastLevelCacheMisses
-                        EVENT_PRE_HW_INSTRUCTIONS -> Instructions
-                        EVENT_PRE_HW_BRANCH_MISSES -> BranchMisses
-                        EVENT_PRE_THREAD_CPU_MIGRATIONS -> ThreadCPUMigrations
-                        
+                    case eventToCounter ctrType of
+                        Just ctr -> fst ctr
                         _ -> error "Invalid event in user window"
             case loc of
                 "START" -> do
@@ -295,98 +313,26 @@ event kv = do
                     -- trace ("Parsed: = " ++ show ev) (return ())
                     return $ Just ev
                 _ -> error $ "Invalid window location tag: " ++ loc
-        EVENT_PRE_THREAD_CLOCK -> do
-            tid <- word32be
-            -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
-            -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
-            -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ Just $ Event tid "" ThreadCPUTime Resume ts
-        EVENT_POST_THREAD_CLOCK -> do
-            tid <- word32be
-            -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
-            -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
-            -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ Just $ Event tid "" ThreadCPUTime Suspend ts
-        EVENT_PRE_THREAD_CTX_SWITCHES -> do
-            tid <- word32be
-            return $ Just $ Event tid "" ThreadCtxVoluntary Resume ts
-        EVENT_POST_THREAD_CTX_SWITCHES -> do
-            tid <- word32be
-            return $ Just $ Event tid "" ThreadCtxVoluntary Suspend ts
-        EVENT_PRE_THREAD_PAGE_FAULTS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" ThreadPageFaultMinor Resume ts
-        EVENT_POST_THREAD_PAGE_FAULTS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" ThreadPageFaultMinor Suspend ts
-        EVENT_PRE_THREAD_ALLOCATED -> do
-            tid <- word32be
-            -- trace ("tid = " ++ show tid ++ " event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ Just $ Event tid "" ThreadAllocated Resume ts
-        EVENT_POST_THREAD_ALLOCATED -> do
-            tid <- word32be
-            -- trace ("tid = " ++ show tid ++ " event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
-            return $ Just $ Event tid "" ThreadAllocated Suspend ts
-        EVENT_PRE_HW_CACHE_L1I -> do
-            tid <- word32be
-            return $ Just $ Event tid "" L1iCacheHit Resume ts
-        EVENT_POST_HW_CACHE_L1I -> do
-            tid <- word32be
-            return $ Just $ Event tid "" L1iCacheHit Suspend ts
-        EVENT_PRE_HW_CACHE_L1D -> do
-            tid <- word32be
-            return $ Just $ Event tid "" L1dCacheHit Resume ts
-        EVENT_POST_HW_CACHE_L1D -> do
-            tid <- word32be
-            return $ Just $ Event tid "" L1dCacheHit Suspend ts
-        EVENT_PRE_HW_CACHE_L1I_MISS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" L1iCacheMiss Resume ts
-        EVENT_POST_HW_CACHE_L1I_MISS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" L1iCacheMiss Suspend ts
-        EVENT_PRE_HW_CACHE_L1D_MISS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" L1dCacheMiss Resume ts
-        EVENT_POST_HW_CACHE_L1D_MISS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" L1dCacheMiss Suspend ts
-        EVENT_PRE_HW_CACHE_MISSES -> do
-            tid <- word32be
-            return $ Just $ Event tid "" LastLevelCacheMisses Resume ts
-        EVENT_POST_HW_CACHE_MISSES -> do
-            tid <- word32be
-            return $ Just $ Event tid "" LastLevelCacheMisses Suspend ts
-        EVENT_PRE_HW_INSTRUCTIONS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" Instructions Resume ts
-        EVENT_POST_HW_INSTRUCTIONS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" Instructions Suspend ts
-        EVENT_PRE_HW_BRANCH_MISSES -> do
-            tid <- word32be
-            return $ Just $ Event tid "" BranchMisses Resume ts
-        EVENT_POST_HW_BRANCH_MISSES -> do
-            tid <- word32be
-            return $ Just $ Event tid "" BranchMisses Suspend ts
-        EVENT_PRE_THREAD_CPU_MIGRATIONS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" ThreadCPUMigrations Resume ts
-        EVENT_POST_THREAD_CPU_MIGRATIONS -> do
-            tid <- word32be
-            return $ Just $ Event tid "" ThreadCPUMigrations Suspend ts
         _ -> do
-            -- Parser.fromEffect $ putStrLn ""
-            let r = Map.lookup (fromIntegral eventId) kv
-            len <-
-                case r of
-                    Just x ->
-                        if x == -1
-                        then fmap fromIntegral word16be
-                        else return x
-                    Nothing -> error $ "Event not in the header: " ++ show eventId
-            _ <- Parser.takeEQ len Fold.drain
-            return Nothing
+            case eventToCounter eventId of
+                Just (ctr, loc) -> do
+                    tid <- word32be
+                    -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
+                    -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
+                    -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
+                    return $ Just $ Event tid "" ctr loc ts
+                _ -> do
+                    -- Parser.fromEffect $ putStrLn ""
+                    let r = Map.lookup (fromIntegral eventId) kv
+                    len <-
+                        case r of
+                            Just x ->
+                                if x == -1
+                                then fmap fromIntegral word16be
+                                else return x
+                            Nothing -> error $ "Event not in the header: " ++ show eventId
+                    _ <- Parser.takeEQ len Fold.drain
+                    return Nothing
 
 {-# INLINE parseEvents #-}
 parseEvents :: IntMap Int -> StreamK IO (Array Word8) -> Stream IO Event
