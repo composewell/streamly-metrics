@@ -202,6 +202,7 @@ parseDataHeader stream = do
 #define EVENT_POST_HW_BRANCH_MISSES      221
 #define EVENT_PRE_THREAD_CPU_MIGRATIONS  222
 #define EVENT_POST_THREAD_CPU_MIGRATIONS 223
+#define EVENT_PRE_PROCESS_CPU_TIME       224
 
 -- XXX We attach a user event to a thread by looking at the previous thread
 -- start event. But when there are multiple capabilities this may not be
@@ -222,6 +223,7 @@ data Counter =
     | BranchMisses
     | Instructions
     | LastLevelCacheMisses
+    | ProcessCPUTime
 
     deriving (Show, Eq, Ord)
 
@@ -246,6 +248,7 @@ eventToCounter ev =
         EVENT_PRE_HW_INSTRUCTIONS -> Just (Instructions, Resume)
         EVENT_PRE_HW_BRANCH_MISSES -> Just (BranchMisses, Resume)
         EVENT_PRE_THREAD_CPU_MIGRATIONS -> Just (ThreadCPUMigrations, Resume)
+        EVENT_PRE_PROCESS_CPU_TIME -> Just (ProcessCPUTime, Resume)
 
         EVENT_POST_THREAD_CLOCK -> Just (ThreadCPUTime, Suspend)
         EVENT_POST_THREAD_ALLOCATED -> Just (ThreadAllocated, Suspend)
