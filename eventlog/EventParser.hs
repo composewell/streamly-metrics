@@ -203,6 +203,7 @@ parseDataHeader stream = do
 #define EVENT_PRE_THREAD_CPU_MIGRATIONS  222
 #define EVENT_POST_THREAD_CPU_MIGRATIONS 223
 #define EVENT_PRE_PROCESS_CPU_TIME       224
+#define EVENT_PRE_FOREIGN_CPU_TIME       225
 
 -- XXX We attach a user event to a thread by looking at the previous thread
 -- start event. But when there are multiple capabilities this may not be
@@ -224,6 +225,7 @@ data Counter =
     | Instructions
     | LastLevelCacheMisses
     | ProcessCPUTime
+    | ForeignCPUTime
 
     deriving (Show, Eq, Ord)
 
@@ -249,6 +251,7 @@ eventToCounter ev =
         EVENT_PRE_HW_BRANCH_MISSES -> Just (BranchMisses, Resume)
         EVENT_PRE_THREAD_CPU_MIGRATIONS -> Just (ThreadCPUMigrations, Resume)
         EVENT_PRE_PROCESS_CPU_TIME -> Just (ProcessCPUTime, Resume)
+        EVENT_PRE_FOREIGN_CPU_TIME -> Just (ForeignCPUTime, Resume)
 
         EVENT_POST_THREAD_CLOCK -> Just (ThreadCPUTime, Suspend)
         EVENT_POST_THREAD_ALLOCATED -> Just (ThreadAllocated, Suspend)
@@ -322,7 +325,7 @@ event kv = do
                     tid <- word32be
                     -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
                     -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
-                    -- trace ("event = " ++ show eventId ++ " ts = " ++ show ts) (return ())
+                    -- trace ("tid = " ++ show tid ++ " ctr = " ++ show ctr ++ " loc = " ++ show loc ++ " val = " ++ show ts) (return ())
                     return $ Just $ Event tid "" ctr loc ts
                 _ -> do
                     -- Parser.fromEffect $ putStrLn ""
