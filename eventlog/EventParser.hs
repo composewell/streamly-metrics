@@ -303,12 +303,15 @@ event kv = do
                         (fromIntegral (len - 6))
                         (Fold.lmap (chr . fromIntegral) Fold.toList)
             let (loc, rest) = span (/= ':') msg
-                tag = drop 1 rest
+                tag = drop 1 rest ++ ":" ++ show tid
             -- Parser.fromEffect $ putStrLn $ "tid = " ++ show tid1 ++ " loc = " ++ loc ++ " tag = " ++ tag
             let counterId =
                     case eventToCounter ctrType of
                         Just ctr -> fst ctr
                         _ -> error "Invalid event in user window"
+            -- Tag the windows with the creating thread so that if the same
+            -- window is entered from multiple threads we can account it
+            -- separately and we do not consider it a duplicate window event.
             case loc of
                 "START" -> do
                     let ev = Event tid tag counterId Resume ts

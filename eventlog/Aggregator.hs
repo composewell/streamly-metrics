@@ -44,7 +44,7 @@ translateThreadEvents = Fold step initial extract
             -}
 
     threadEventBcast mp tid value ctr loc = do
-        let r = Map.lookup tid mp
+        let r = Map.lookup ctr mp
         case r of
             Just set ->
                 pure $ Partial $ Tuple' mp (fmap f ("default" : Set.toList set))
@@ -65,24 +65,32 @@ translateThreadEvents = Fold step initial extract
     -}
 
     windowStart mp tid tag value ctr = do
-        let mp1 = Map.alter alter tid mp
+        let mp1 = Map.alter alter ctr mp
         pure $ Partial $ Tuple' mp1 [f tag]
 
         where
 
         alter Nothing = Just $ Set.singleton tag
-        alter (Just set) = Just $ Set.insert tag set
+        alter (Just set) =
+            if Set.member tag set
+                then error $ "Duplicate add " ++ "window = " ++ tag
+                        ++ " tid = " ++ show tid
+                else Just $ Set.insert tag set
 
         f x = ((tid, x, ctr), (Resume, (fromIntegral value)))
 
     windowEnd mp tid tag value ctr = do
-        let mp1 = Map.alter alter tid mp
+        let mp1 = Map.alter alter ctr mp
         pure $ Partial $ Tuple' mp1 [f tag]
 
         where
 
         alter Nothing = error "Window end when window does not exist"
-        alter (Just set) = Just $ Set.delete tag set
+        alter (Just set) =
+            if Set.member tag set
+                then Just $ Set.delete tag set
+                else error $ "Window end when window does not exist:"
+                        ++ "window = " ++ tag ++ " tid = " ++ show tid
 
         f x = ((tid, x, ctr), (Exit, (fromIntegral value)))
 
