@@ -142,20 +142,31 @@ printTable rows = do
     separatorRow = map (\n -> replicate n '-') maxLengths
     fillRow r = zipWith (\n x -> fill n x) maxLengths r
 
+getStatField :: String -> (k, [(String, Int)]) -> Maybe Int
+getStatField x kv = List.lookup x $ snd kv
+
 printWindowCounter ::
-    [((Word32, String, Counter), [(a, String)])] -> (String, Counter) -> IO ()
-printWindowCounter statsList (w, ctr) = do
+       [((Word32, String, Counter), [(String, Int)])]
+    -> (String, Counter)
+    -> IO ()
+printWindowCounter statsRaw (w, ctr) = do
     if w == "default"
         then
             putStrLn $ "Entire thread stats for [" ++ show ctr ++ "]"
         else
             putStrLn
                 $ "[" ++ w ++ "]" ++ " window stats for [" ++ show ctr ++ "]"
+    let statsFiltered = filter select statsRaw
+    let grandTotal =
+            sum $ map (\x -> fromJust (getStatField "total" x)) statsFiltered
+    let statsString = map (\(k, v) -> (k, map toString v)) statsFiltered
+    printTable (header : map addTid statsString)
+    putStrLn $ "\nGrand total: " ++ Text.unpack (prettyI (Just ',') grandTotal)
     putStrLn ""
-    printTable (header : map addTid (filter select statsList))
 
     where
 
+    toString (k, v) = (k, Text.unpack $ prettyI (Just ',') v)
     header = ["tid", "total", "count", "avg", "minimum", "maximum", "stddev"]
     addTid ((tid, _, _), v) = printf "%d" tid : map snd v
     select ((_, window, counter), _) = window == w && counter == ctr
@@ -172,13 +183,14 @@ main = do
     -- putStrLn $ show kv
     events <- parseDataHeader rest
     statsMap <- Stream.fold toStats (fromEvents kv events)
-    -- Map (tid, window tag, counter) (Maybe [(stat name, value)])
+    -- statsMap :: Map (tid, window tag, counter) (Maybe [(stat name, value)])
     -- putStrLn $ ppShow r
+    -- statsRaw :: [(tid, window tag, counter), [(stat name, value)]]
     let statsRaw =
             -- TODO: get the sorting field from Config/CLI
-              List.sortOn (getField "tid")
+              List.sortOn (getStatField "tid")
             -- TODO: get the threshold from Config/CLI
-            $ filter (\x -> fromJust (getField "total" x) > 0)
+            $ filter (\x -> fromJust (getStatField "total" x) > 0)
             $ map (\(k, v) -> (k, filter (\(k1,_) -> k1 /= "latest") v))
             $ map (\(k, v) -> (k, fromJust v))
             $ filter (\(_, v) -> isJust v)
@@ -187,14 +199,8 @@ main = do
               List.nub
             $ map (\(_, window, counter) -> (window, counter))
             $ map fst statsRaw
-    let statsString = map (\(k, v) -> (k, map toString v)) statsRaw
     -- TODO: filter the counters to be printed based on Config/CLI
     -- TODO: filter the windows or threads to be printed
     -- For each (window, counter) list all threads
-    mapM_ (printWindowCounter statsString) windowCounterList
+    mapM_ (printWindowCounter statsRaw) windowCounterList
     return ()
-
-    where
-
-    getField x kv = List.lookup x $ snd kv
-    toString (k, v) = (k, Text.unpack $ prettyI (Just ',') v)
