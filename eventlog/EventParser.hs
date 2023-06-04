@@ -177,6 +177,7 @@ parseDataHeader stream = do
 #define EVENT_RUN_THREAD           1 /* (thread)               */
 #define EVENT_STOP_THREAD          2 /* (thread, status, blockinfo) */
 #define EVENT_USER_MSG            19 /* (message ...)          */
+#define EVENT_THREAD_LABEL        44 /* (thread, name_string)  */
 
 #define EVENT_PRE_THREAD_CLOCK           200
 #define EVENT_POST_THREAD_CLOCK          201
@@ -234,8 +235,9 @@ data Location = Resume | Suspend | Exit deriving Show
 
 -- Event tid window counter start/stop value
 data Event =
-   CounterEvent Word32 String Counter Location Word64
-    deriving Show
+     CounterEvent Word32 String Counter Location Word64
+   | LabelEvent Word32 String
+   deriving Show
 
 eventToCounter :: Word16 -> Maybe (Counter, Location)
 eventToCounter ev =
@@ -324,6 +326,13 @@ event kv = do
                     -- trace ("Parsed: = " ++ show ev) (return ())
                     return $ Just ev
                 _ -> error $ "Invalid window location tag: " ++ loc
+        EVENT_THREAD_LABEL -> do
+            len <- word16be
+            tid <- word32be
+            label <- Parser.takeEQ
+                        (fromIntegral (len - 4))
+                        (Fold.lmap (chr . fromIntegral) Fold.toList)
+            return $ Just $ LabelEvent tid label
         _ -> do
             case eventToCounter eventId of
                 Just (ctr, loc) -> do

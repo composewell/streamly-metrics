@@ -23,8 +23,7 @@ import qualified Data.Set as Set
 -- using extract. We can avoid having to save the result in state many a times.
 
 {-# INLINE translateThreadEvents #-}
-translateThreadEvents ::
-    Fold IO Event [((Word32, String, Counter), (Location, Int64))]
+translateThreadEvents :: Fold IO Event [Event]
 translateThreadEvents = Fold step initial extract
 
     where
@@ -53,7 +52,7 @@ translateThreadEvents = Fold step initial extract
 
         where
 
-        f tag = ((tid, tag, ctr), (loc, (fromIntegral value)))
+        f tag = CounterEvent tid tag ctr loc value
 
     {-
     threadEvent mp tid value ctr loc =
@@ -77,7 +76,7 @@ translateThreadEvents = Fold step initial extract
                         ++ " tid = " ++ show tid
                 else Just $ Set.insert tag set
 
-        f x = ((tid, x, ctr), (Resume, (fromIntegral value)))
+        f x = CounterEvent tid x ctr Resume value
 
     windowEnd mp tid tag value ctr = do
         let mp1 = Map.alter alter ctr mp
@@ -92,7 +91,7 @@ translateThreadEvents = Fold step initial extract
                 else error $ "Window end when window does not exist:"
                         ++ "window = " ++ tag ++ " tid = " ++ show tid
 
-        f x = ((tid, x, ctr), (Exit, (fromIntegral value)))
+        f x = CounterEvent tid x ctr Exit value
 
     step (Tuple' mp _) (CounterEvent tid "" counter Resume value) =
         threadEventBcast mp tid value counter Resume
@@ -105,6 +104,9 @@ translateThreadEvents = Fold step initial extract
     step (Tuple' mp _) (CounterEvent tid tag counter Suspend value) =
         windowEnd mp tid tag value counter
     step _ (CounterEvent _ _ _ Exit _) = error "Unexpected Exit event"
+
+    -- Pass non-counter events as it is
+    step (Tuple' mp _) ev = pure $ Partial $ Tuple' mp [ev]
 
     extract (Tuple' _ xs) = pure xs
 

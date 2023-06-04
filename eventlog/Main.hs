@@ -15,6 +15,7 @@ import Data.Word (Word32, Word8)
 import EventParser
   ( Counter (..),
     Location (..),
+    Event (..),
     parseDataHeader,
     parseEvents,
     parseLogHeader,
@@ -35,7 +36,8 @@ import qualified Streamly.Data.Stream as Stream
 import qualified Streamly.Data.StreamK as StreamK
 import qualified Streamly.Data.Unfold as Unfold
 import qualified Streamly.FileSystem.File as File
-import qualified Streamly.Internal.Data.Fold.Container as Fold (demuxKvToMap)
+import qualified Streamly.Internal.Data.Fold.Container as Fold
+    (demuxKvToMap, kvToMap)
 
 -------------------------------------------------------------------------------
 -- Utility functions, can go in streamly-core
@@ -114,12 +116,12 @@ toStats = Fold.demuxKvToMap (\k -> pure (f1 k))
     -- For windows inside the thread
     f1 k1@(_, _, _) = f k1 windowStats
 
-{-# INLINE fromEvents #-}
-fromEvents ::
+{-# INLINE generateEvents #-}
+generateEvents ::
        IntMap Int
     -> StreamK IO (Array Word8)
-    -> Stream IO ((Word32, String, Counter), (Location, Int64))
-fromEvents kv =
+    -> Stream IO Event
+generateEvents kv =
           Stream.unfoldMany Unfold.fromList
         . Stream.postscan translateThreadEvents
         -- . Stream.trace print
@@ -153,9 +155,10 @@ getStatField x kv = List.lookup x $ snd kv
 
 printWindowCounter ::
        [((Word32, String, Counter), [(String, Int)])]
+    -> Map Word32 String
     -> (String, Counter)
     -> IO ()
-printWindowCounter statsRaw (w, ctr) = do
+printWindowCounter statsRaw tidMap (w, ctr) = do
     if w == "default"
         then
             putStrLn $ "Entire thread stats for [" ++ show ctr ++ "]"
@@ -173,8 +176,22 @@ printWindowCounter statsRaw (w, ctr) = do
     where
 
     toString (k, v) = (k, Text.unpack $ prettyI (Just ',') v)
-    header = ["tid", "total", "count", "avg", "minimum", "maximum", "stddev"]
-    addTid ((tid, _, _), v) = printf "%d" tid : map snd v
+    header =
+        ["tid"
+        , "label"
+        , "total"
+        , "count"
+        , "avg"
+        , "minimum"
+        , "maximum"
+        , "stddev"
+        ]
+    addTid ((tid, _, _), v) =
+        let r = Map.lookup tid tidMap
+            lb = case r of
+                    Just label -> label
+                    Nothing -> "-"
+         in printf "%d" tid : lb : map snd v
     select ((_, window, counter), _) = window == w && counter == ctr
 
 -- XXX Are the events for a particular thread guaranteed to come in order. What
@@ -188,10 +205,14 @@ main = do
     (kv, rest) <- parseLogHeader $ StreamK.fromStream stream
     -- putStrLn $ show kv
     events <- parseDataHeader rest
-    statsMap <- Stream.fold toStats (fromEvents kv events)
+    (statsMap, tidMap) <-
+        Stream.fold
+            (Fold.partition toStats (Fold.kvToMap Fold.the))
+            (fmap toEither $ generateEvents kv events)
     -- statsMap :: Map (tid, window tag, counter) (Maybe [(stat name, value)])
     -- putStrLn $ ppShow r
     -- statsRaw :: [(tid, window tag, counter), [(stat name, value)]]
+    -- putStrLn $ show tidMap
     let statsRaw =
             -- TODO: get the sorting field from Config/CLI
               List.sortOn (getStatField "tid")
@@ -205,8 +226,20 @@ main = do
               List.nub
             $ map (\(_, window, counter) -> (window, counter))
             $ map fst statsRaw
+    mapM_ checkLabel (Map.toList tidMap)
+
     -- TODO: filter the counters to be printed based on Config/CLI
     -- TODO: filter the windows or threads to be printed
     -- For each (window, counter) list all threads
-    mapM_ (printWindowCounter statsRaw) windowCounterList
+    mapM_ (printWindowCounter statsRaw (fmap fromJust tidMap)) windowCounterList
     return ()
+
+    where
+
+    toEither (CounterEvent tid tag ctr loc val) =
+        Left ((tid, tag, ctr), (loc, fromIntegral val))
+    toEither (LabelEvent tid label) = Right (tid, label)
+
+    checkLabel (tid,Nothing) =
+        error $ "Duplicate non-matching label events for thread: " ++ show tid
+    checkLabel _ = pure ()
