@@ -145,9 +145,12 @@ printTable rows = do
 printWindowCounter ::
     [((Word32, String, Counter), [(a, String)])] -> (String, Counter) -> IO ()
 printWindowCounter statsList (w, ctr) = do
-    putStrLn
-        $ "Stats for [" ++ w ++ "]"
-        ++ " window for [" ++ show ctr ++ "] counter"
+    if w == "default"
+        then
+            putStrLn $ "Entire thread stats for [" ++ show ctr ++ "]"
+        else
+            putStrLn
+                $ "[" ++ w ++ "]" ++ " window stats for [" ++ show ctr ++ "]"
     putStrLn ""
     printTable (header : map addTid (filter select statsList))
 
