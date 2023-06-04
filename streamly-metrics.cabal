@@ -165,4 +165,6 @@ executable process-events
      , containers
      , streamly == 0.9.0
      , streamly-core == 0.1.0
+     , format-numbers
+     , text
      -- , fusion-plugin

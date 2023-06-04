@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module Main (main) where
 
 import Aggregator
@@ -6,7 +7,7 @@ import System.Environment (getArgs)
 import Data.Either (isLeft)
 import Data.Int (Int64)
 import Data.Map (Map)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, isJust)
 import Data.Word (Word32)
 import Data.IntMap (IntMap)
 import Data.Word (Word8)
@@ -16,8 +17,14 @@ import Streamly.Data.Array (Array)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.StreamK (StreamK)
 import Streamly.Internal.Data.Fold (Fold(..))
+import Text.Printf (printf)
+import Data.Text.Format.Numbers (prettyI)
+import qualified Data.List as List
 
+import qualified Data.Map as Map
+import qualified Data.Text as Text
 import qualified Streamly.Data.Fold as Fold
+-- import qualified Streamly.Internal.Data.Fold as Fold (trace)
 import qualified Streamly.Internal.Data.Fold.Container as Fold (demuxKvToMap)
 import qualified Streamly.Data.Stream as Stream
 import qualified Streamly.Data.StreamK as StreamK
@@ -75,25 +82,26 @@ threadStats = untilLeft stats
 windowStats :: Fold IO (Either Int64 Int64) [(String, Int)]
 windowStats = Fold.many (untilLeft Fold.sum) stats
 
--- input (tid, counter)
--- output "Map tid x" where x is "Map (tid, window tag, counter name) ()"
 {-# INLINE toStats #-}
 toStats ::
     Fold
         IO
+        -- ((tid, window tag, counter), (location, value))
         ((Word32, String, Counter), (Location, Int64))
-        (Map (Word32, String, Counter) ())
+        -- Map (tid, window tag, counter) (Maybe [(stat name, value)])
+        (Map (Word32, String, Counter) (Maybe [(String, Int)]))
 toStats = Fold.demuxKvToMap (\k -> pure (f1 k))
 
     where
 
-    f k1 st =
+    f k1 collectStats =
           Fold.lmap (\x -> (k1, x))
         -- $ Fold.lmapM (\x -> print x >> pure x)
         $ Fold.scanMaybe (secondMaybe collectThreadCounter)
-        $ Fold.postscan (second st)
+        $ Fold.postscan (second collectStats)
         -- $ Fold.filter (\kv -> snd (snd kv !! 0) > 50000)
-        $ Fold.drainMapM print
+        -- $ Fold.trace print
+        $ Fold.lmap snd Fold.latest
 
     -- For the main thread
     f1 k1@(_, "default", _) = f k1 threadStats
@@ -111,6 +119,44 @@ fromEvents kv =
         -- . Stream.trace print
         . parseEvents kv
 
+-- Ways to present:
+-- For each thread rows of counters - cols of counter stats
+-- For one counter rows of threads - cols of counter stats
+-- For one counter rows of threads - cols of different runs
+
+fill :: Int -> String  -> String
+fill i x =
+    let len = length x
+     in x ++ replicate (i - len) ' '
+
+printTable :: [[String]] -> IO ()
+printTable rows = do
+    let (header:rest) = map (unwords . fillRow) rows
+    putStrLn $ unlines $ header:unwords separatorRow:rest
+    -- putStrLn "\n"
+
+    where
+
+    rowLengths = map (map length) rows -- [[Int]]
+    maxLengths = List.foldl' (zipWith max) (head rowLengths) rowLengths
+    separatorRow = map (\n -> replicate n '-') maxLengths
+    fillRow r = zipWith (\n x -> fill n x) maxLengths r
+
+printWindowCounter ::
+    [((Word32, String, Counter), [(a, String)])] -> (String, Counter) -> IO ()
+printWindowCounter statsList (w, ctr) = do
+    putStrLn
+        $ "Stats for [" ++ w ++ "]"
+        ++ " window for [" ++ show ctr ++ "] counter"
+    putStrLn ""
+    printTable (header : map addTid (filter select statsList))
+
+    where
+
+    header = ["tid", "total", "count", "avg", "minimum", "maximum", "stddev"]
+    addTid ((tid, _, _), v) = printf "%d" tid : map snd v
+    select ((_, window, counter), _) = window == w && counter == ctr
+
 -- XXX Are the events for a particular thread guaranteed to come in order. What
 -- if a thread logged events to a particular capability buffer and then got
 -- scheduled on another capability before its eventlog could be flushed from
@@ -122,5 +168,23 @@ main = do
     (kv, rest) <- parseLogHeader $ StreamK.fromStream stream
     -- putStrLn $ show kv
     events <- parseDataHeader rest
-    _ <- Stream.fold toStats (fromEvents kv events)
+    statsMap <- Stream.fold toStats (fromEvents kv events)
+    -- Map (tid, window tag, counter) (Maybe [(stat name, value)])
+    -- putStrLn $ ppShow r
+    let statsList =
+              map (\(k, v) -> (k, map toString v))
+            $ map (\(k, v) -> (k, filter (\(k1,_) -> k1 /= "latest") v))
+            $ map (\(k, v) -> (k, fromJust v))
+            $ filter (\(_, v) -> isJust v)
+            $ Map.toList statsMap
+    let windowCounterList =
+              List.nub
+            $ map (\(_, window, counter) -> (window, counter))
+            $ map fst statsList
+    -- For each (window, counter) list all threads
+    mapM_ (printWindowCounter statsList) windowCounterList
     return ()
+
+    where
+
+    toString (k, v) = (k, Text.unpack $ prettyI (Just ',') v)
