@@ -171,8 +171,8 @@ main = do
     statsMap <- Stream.fold toStats (fromEvents kv events)
     -- Map (tid, window tag, counter) (Maybe [(stat name, value)])
     -- putStrLn $ ppShow r
-    let statsList =
-              map (\(k, v) -> (k, map toString v))
+    let statsRaw =
+              List.sortOn (getField "tid")
             $ map (\(k, v) -> (k, filter (\(k1,_) -> k1 /= "latest") v))
             $ map (\(k, v) -> (k, fromJust v))
             $ filter (\(_, v) -> isJust v)
@@ -180,11 +180,13 @@ main = do
     let windowCounterList =
               List.nub
             $ map (\(_, window, counter) -> (window, counter))
-            $ map fst statsList
+            $ map fst statsRaw
+    let statsString = map (\(k, v) -> (k, map toString v)) statsRaw
     -- For each (window, counter) list all threads
-    mapM_ (printWindowCounter statsList) windowCounterList
+    mapM_ (printWindowCounter statsString) windowCounterList
     return ()
 
     where
 
+    getField x kv = List.lookup x $ snd kv
     toString (k, v) = (k, Text.unpack $ prettyI (Just ',') v)
