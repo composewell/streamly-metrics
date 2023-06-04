@@ -2,34 +2,40 @@
 module Main (main) where
 
 import Aggregator
-    ( translateThreadEvents , collectThreadCounter)
-import System.Environment (getArgs)
+  ( collectThreadCounter,
+    translateThreadEvents,
+  )
 import Data.Either (isLeft)
 import Data.Int (Int64)
+import Data.IntMap (IntMap)
 import Data.Map (Map)
 import Data.Maybe (fromJust, isJust)
-import Data.Word (Word32)
-import Data.IntMap (IntMap)
-import Data.Word (Word8)
+import Data.Text.Format.Numbers (prettyI)
+import Data.Word (Word32, Word8)
 import EventParser
-    (parseLogHeader, parseDataHeader, parseEvents, Counter(..) , Location(..))
+  ( Counter (..),
+    Location (..),
+    parseDataHeader,
+    parseEvents,
+    parseLogHeader,
+  )
 import Streamly.Data.Array (Array)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.StreamK (StreamK)
-import Streamly.Internal.Data.Fold (Fold(..))
+import Streamly.Internal.Data.Fold (Fold (..))
+import System.Environment (getArgs)
 import Text.Printf (printf)
-import Data.Text.Format.Numbers (prettyI)
-import qualified Data.List as List
 
+import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 import qualified Streamly.Data.Fold as Fold
 -- import qualified Streamly.Internal.Data.Fold as Fold (trace)
-import qualified Streamly.Internal.Data.Fold.Container as Fold (demuxKvToMap)
 import qualified Streamly.Data.Stream as Stream
 import qualified Streamly.Data.StreamK as StreamK
 import qualified Streamly.Data.Unfold as Unfold
 import qualified Streamly.FileSystem.File as File
+import qualified Streamly.Internal.Data.Fold.Container as Fold (demuxKvToMap)
 
 -------------------------------------------------------------------------------
 -- Utility functions, can go in streamly-core
