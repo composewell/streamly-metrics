@@ -94,17 +94,17 @@ translateThreadEvents = Fold step initial extract
 
         f x = ((tid, x, ctr), (Exit, (fromIntegral value)))
 
-    step (Tuple' mp _) (Event tid "" counter Resume value) =
+    step (Tuple' mp _) (CounterEvent tid "" counter Resume value) =
         threadEventBcast mp tid value counter Resume
-    step (Tuple' mp _) (Event tid "" counter Suspend value) =
+    step (Tuple' mp _) (CounterEvent tid "" counter Suspend value) =
         threadEventBcast mp tid value counter Suspend
-    step _ (Event _ "" _ Exit _) = error "Unexpected Exit event"
+    step _ (CounterEvent _ "" _ Exit _) = error "Unexpected Exit event"
 
-    step (Tuple' mp _) (Event tid tag counter Resume value) =
+    step (Tuple' mp _) (CounterEvent tid tag counter Resume value) =
         windowStart mp tid tag value counter
-    step (Tuple' mp _) (Event tid tag counter Suspend value) =
+    step (Tuple' mp _) (CounterEvent tid tag counter Suspend value) =
         windowEnd mp tid tag value counter
-    step _ (Event _ _ _ Exit _) = error "Unexpected Exit event"
+    step _ (CounterEvent _ _ _ Exit _) = error "Unexpected Exit event"
 
     extract (Tuple' _ xs) = pure xs
 

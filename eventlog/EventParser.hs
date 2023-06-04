@@ -233,7 +233,9 @@ data Counter =
 data Location = Resume | Suspend | Exit deriving Show
 
 -- Event tid window counter start/stop value
-data Event = Event Word32 String Counter Location Word64 deriving Show
+data Event =
+   CounterEvent Word32 String Counter Location Word64
+    deriving Show
 
 eventToCounter :: Word16 -> Maybe (Counter, Location)
 eventToCounter ev =
@@ -314,11 +316,11 @@ event kv = do
             -- separately and we do not consider it a duplicate window event.
             case loc of
                 "START" -> do
-                    let ev = Event tid tag counterId Resume ts
+                    let ev = CounterEvent tid tag counterId Resume ts
                     -- trace ("Parsed: = " ++ show ev) (return ())
                     return $ Just ev
                 "END" -> do
-                    let ev = Event tid tag counterId Suspend ts
+                    let ev = CounterEvent tid tag counterId Suspend ts
                     -- trace ("Parsed: = " ++ show ev) (return ())
                     return $ Just ev
                 _ -> error $ "Invalid window location tag: " ++ loc
@@ -329,7 +331,7 @@ event kv = do
                     -- Parser.fromEffect $ putStr $ "event = " ++ show eventId ++ " ts = " ++ show ts
                     -- Parser.fromEffect $ putStrLn $ " tid = " ++ show tid
                     -- trace ("tid = " ++ show tid ++ " ctr = " ++ show ctr ++ " loc = " ++ show loc ++ " val = " ++ show ts) (return ())
-                    return $ Just $ Event tid "" ctr loc ts
+                    return $ Just $ CounterEvent tid "" ctr loc ts
                 _ -> do
                     -- Parser.fromEffect $ putStrLn ""
                     let r = Map.lookup (fromIntegral eventId) kv
