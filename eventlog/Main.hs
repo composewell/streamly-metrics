@@ -172,7 +172,10 @@ main = do
     -- Map (tid, window tag, counter) (Maybe [(stat name, value)])
     -- putStrLn $ ppShow r
     let statsRaw =
+            -- TODO: get the sorting field from Config/CLI
               List.sortOn (getField "tid")
+            -- TODO: get the threshold from Config/CLI
+            $ filter (\x -> fromJust (getField "total" x) > 0)
             $ map (\(k, v) -> (k, filter (\(k1,_) -> k1 /= "latest") v))
             $ map (\(k, v) -> (k, fromJust v))
             $ filter (\(_, v) -> isJust v)
@@ -182,6 +185,8 @@ main = do
             $ map (\(_, window, counter) -> (window, counter))
             $ map fst statsRaw
     let statsString = map (\(k, v) -> (k, map toString v)) statsRaw
+    -- TODO: filter the counters to be printed based on Config/CLI
+    -- TODO: filter the windows or threads to be printed
     -- For each (window, counter) list all threads
     mapM_ (printWindowCounter statsString) windowCounterList
     return ()
