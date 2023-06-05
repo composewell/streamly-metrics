@@ -194,6 +194,14 @@ printWindowCounter statsRaw tidMap (w, ctr) = do
          in printf "%d" tid : lb : map snd v
     select ((_, window, counter), _) = window == w && counter == ctr
 
+windowLevelCounters :: [Counter]
+windowLevelCounters =
+    [ ProcessCPUTime
+    , ProcessUserCPUTime
+    , ProcessSystemCPUTime
+    , GCCPUTime
+    ]
+
 printAllCounters ::
        [((Word32, String, Counter), [(String, Int)])]
     -> Map Word32 String
@@ -208,12 +216,6 @@ printAllCounters statsRaw tidMap ctrs w = do
                 (\f -> fmap snd $ filter f windowTotals)
                 (fmap selectCounter ctrs)
         grandTotals = fmap sum allCounterTotals
-
-        -- Only one thread should have this
-        processCPUTime =
-              head
-            $ fmap snd
-            $ filter (selectCounter ProcessCPUTime) windowTotals
 
         -- XXX Head should not be ProcessCPUTime, as it is not available for
         -- default window.
@@ -238,12 +240,20 @@ printAllCounters statsRaw tidMap ctrs w = do
         then putStrLn $ "Entire threads"
         else do
             putStrLn $ "[" ++ w ++ "]" ++ " window"
-            putStrLn $ "ProcessCPUTime: " ++ toString processCPUTime
+            mapM_ (printWindowLevelCounter windowTotals) windowLevelCounters
 
     printTable ((header : List.transpose allColumns) ++ [separator, summary])
     putStrLn ""
 
     where
+
+    printWindowLevelCounter wt c = do
+        -- Only one thread should have this
+        let val =
+                  head
+                $ fmap snd
+                $ filter (selectCounter c) wt
+        putStrLn $ show c ++ ": " ++ toString val
 
     toString = Text.unpack . prettyI (Just ',')
     header =
@@ -293,6 +303,7 @@ main = do
             $ Map.toList statsMap
     let windowCounterList =
               List.nub
+            $ filter (\(_,c) -> c `notElem` windowLevelCounters)
             $ map (\(_, window, counter) -> (window, counter))
             $ map fst statsRaw
     mapM_ checkLabel (Map.toList tidMap)
@@ -304,7 +315,7 @@ main = do
 
     -- TODO: filter the counters to be printed based on Config/CLI
     -- TODO: filter the windows or threads to be printed
-    let ctrs = filter (/= ProcessCPUTime) $ List.nub $ fmap snd windowCounterList
+    let ctrs = List.nub $ fmap snd windowCounterList
         wins = List.nub $ fmap fst windowCounterList
     let f = printAllCounters statsRaw (fmap fromJust tidMap) ctrs
      in mapM_ f wins

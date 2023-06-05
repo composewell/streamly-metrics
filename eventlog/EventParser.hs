@@ -205,6 +205,9 @@ parseDataHeader stream = do
 #define EVENT_POST_THREAD_CPU_MIGRATIONS 223
 #define EVENT_PRE_PROCESS_CPU_TIME       224
 #define EVENT_PRE_FOREIGN_CPU_TIME       225
+#define EVENT_PRE_GC_CPU_TIME            226
+#define EVENT_PRE_USER_CPU_TIME          227
+#define EVENT_PRE_SYSTEM_CPU_TIME        228
 
 -- XXX We attach a user event to a thread by looking at the previous thread
 -- start event. But when there are multiple capabilities this may not be
@@ -227,6 +230,9 @@ data Counter =
     | LastLevelCacheMisses
     | ProcessCPUTime
     | ForeignCPUTime
+    | GCCPUTime
+    | ProcessUserCPUTime
+    | ProcessSystemCPUTime
 
     deriving (Show, Eq, Ord)
 
@@ -256,6 +262,9 @@ eventToCounter ev =
         EVENT_PRE_THREAD_CPU_MIGRATIONS -> Just (ThreadCPUMigrations, Resume)
         EVENT_PRE_PROCESS_CPU_TIME -> Just (ProcessCPUTime, Resume)
         EVENT_PRE_FOREIGN_CPU_TIME -> Just (ForeignCPUTime, Resume)
+        EVENT_PRE_GC_CPU_TIME -> Just (GCCPUTime, Resume)
+        EVENT_PRE_USER_CPU_TIME -> Just (ProcessUserCPUTime, Resume)
+        EVENT_PRE_SYSTEM_CPU_TIME -> Just (ProcessSystemCPUTime, Resume)
 
         EVENT_POST_THREAD_CLOCK -> Just (ThreadCPUTime, Suspend)
         EVENT_POST_THREAD_ALLOCATED -> Just (ThreadAllocated, Suspend)
