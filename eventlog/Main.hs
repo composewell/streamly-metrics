@@ -135,7 +135,7 @@ generateEvents kv =
 fill :: Int -> String  -> String
 fill i x =
     let len = length x
-     in x ++ replicate (i - len) ' '
+     in replicate (i - len) ' ' ++ x
 
 printTable :: [[String]] -> IO ()
 printTable rows = do
@@ -194,6 +194,75 @@ printWindowCounter statsRaw tidMap (w, ctr) = do
          in printf "%d" tid : lb : map snd v
     select ((_, window, counter), _) = window == w && counter == ctr
 
+printAllCounters ::
+       [((Word32, String, Counter), [(String, Int)])]
+    -> Map Word32 String
+    -> [Counter]
+    -> String
+    -> IO ()
+printAllCounters statsRaw tidMap ctrs w = do
+    let
+        windowTotals = fmap toTotal $ filter selectWindow statsRaw
+        allCounterTotals =
+            fmap
+                (\f -> fmap snd $ filter f windowTotals)
+                (fmap selectCounter ctrs)
+        grandTotals = fmap sum allCounterTotals
+
+        -- Only one thread should have this
+        processCPUTime =
+              head
+            $ fmap snd
+            $ filter (selectCounter ProcessCPUTime) windowTotals
+
+        -- XXX Head should not be ProcessCPUTime, as it is not available for
+        -- default window.
+        oneCounterTotals = filter (selectCounter (head ctrs)) windowTotals
+        tids = fmap fromIntegral $ fmap fst $ fmap fst $ oneCounterTotals
+        labels = fmap (getLabel . fromIntegral) tids
+
+        windowCounts = fmap toCounts $ filter selectWindow statsRaw
+        oneCounterCounts = filter (selectCounter (head ctrs)) windowCounts
+        counts = fmap fromIntegral $ fmap snd $ oneCounterCounts
+
+        allColumns =
+              fmap toString tids
+            : labels
+            : fmap toString counts
+            : fmap (fmap toString) allCounterTotals
+
+        separator = replicate (length allColumns) " "
+        summary = "-" : "-" : "-" : fmap toString grandTotals
+
+    if w == "default"
+        then putStrLn $ "Entire threads"
+        else do
+            putStrLn $ "[" ++ w ++ "]" ++ " window"
+            putStrLn $ "ProcessCPUTime: " ++ toString processCPUTime
+
+    printTable ((header : List.transpose allColumns) ++ [separator, summary])
+    putStrLn ""
+
+    where
+
+    toString = Text.unpack . prettyI (Just ',')
+    header =
+        ["tid"
+        , "label"
+        , "samples"
+        ] ++ map show ctrs
+    selectWindow ((_, window, _), _) = window == w
+    selectCounter c ((_, ctr), _) = ctr == c
+    toTotal ((tid, _, ctr), v) = ((tid, ctr), fromJust $ List.lookup "total" v)
+    toCounts ((tid, _, ctr), v) = ((tid, ctr), fromJust $ List.lookup "count" v)
+
+    getLabel :: Word32 -> String
+    getLabel tid =
+        let r = Map.lookup tid tidMap
+        in case r of
+            Just label -> label
+            Nothing -> "-"
+
 -- XXX Are the events for a particular thread guaranteed to come in order. What
 -- if a thread logged events to a particular capability buffer and then got
 -- scheduled on another capability before its eventlog could be flushed from
@@ -228,11 +297,25 @@ main = do
             $ map fst statsRaw
     mapM_ checkLabel (Map.toList tidMap)
 
+    putStrLn "--------------------------------------------------"
+    putStrLn "Summary Stats"
+    putStrLn "--------------------------------------------------"
+    putStrLn ""
+
     -- TODO: filter the counters to be printed based on Config/CLI
     -- TODO: filter the windows or threads to be printed
+    let ctrs = filter (/= ProcessCPUTime) $ List.nub $ fmap snd windowCounterList
+        wins = List.nub $ fmap fst windowCounterList
+    let f = printAllCounters statsRaw (fmap fromJust tidMap) ctrs
+     in mapM_ f wins
+
+    putStrLn "--------------------------------------------------"
+    putStrLn "Detailed Stats"
+    putStrLn "--------------------------------------------------"
+    putStrLn ""
+
     -- For each (window, counter) list all threads
     mapM_ (printWindowCounter statsRaw (fmap fromJust tidMap)) windowCounterList
-    return ()
 
     where
 
