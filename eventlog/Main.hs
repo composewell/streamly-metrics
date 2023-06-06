@@ -9,6 +9,7 @@ import Aggregator
 import Data.Either (isLeft)
 import Data.Int (Int64)
 import Data.IntMap (IntMap)
+import Data.Ord (Down(..))
 import Data.Map (Map)
 import Data.Maybe (fromJust, isJust)
 import Data.Text.Format.Numbers (prettyI)
@@ -171,7 +172,7 @@ printWindowCounter statsRaw tidMap (w, ctr) = do
     let grandTotal =
             sum $ map (\x -> fromJust (getStatField "total" x)) statsFiltered
     let statsString = map (\(k, v) -> (k, map toString v)) statsFiltered
-    printTable (header : map addTid statsString)
+    printTable (header : take 100 (map addTid statsString))
     putStrLn $ "\nGrand total: " ++ Text.unpack (prettyI (Just ',') grandTotal)
     putStrLn ""
 
@@ -245,21 +246,22 @@ printAllCounters statsRaw tidMap ctrs w = do
                     (\f -> fmap snd $ filter f windowTotals)
                     (fmap selectCounter ctrs1)
 
-            labels = fmap (getLabel . fromIntegral) tids
-
             windowCounts = fmap toCounts $ filter selectWindow statsRaw
             oneCounterCounts = filter (selectCounter (head ctrs1)) windowCounts
             counts = fmap fromIntegral $ fmap snd $ oneCounterCounts
 
-            allColumns =
-                  fmap toString tids
-                : labels
-                : fmap toString counts
-                : fmap (fmap toString) allCounterTotals
+            allRows =
+                  fmap (\(x:xs) ->
+                          toString x
+                        : getLabel (fromIntegral x)
+                        : fmap toString xs
+                       )
+                $ List.sortOn (Down . (!! 2))
+                $ List.transpose $ tids : counts : allCounterTotals
 
             -- Printing grand totals line at the bottom
             grandTotals = fmap sum allCounterTotals
-            separator = replicate (length allColumns) " "
+            separator = replicate (length (head allRows)) " "
             summary = "-" : "-" : "-" : fmap toString grandTotals
 
         if w == "default"
@@ -290,7 +292,7 @@ printAllCounters statsRaw tidMap ctrs w = do
                             processCPUTime - gcCPUTime - threadCPUTimeTotal
                     putStrLn $ "RtsCPUTime:" ++ toString rtsCPUTime
 
-        printTable ((header : List.transpose allColumns) ++ [separator, summary])
+        printTable ((header : take 100 allRows) ++ [separator, summary])
         putStrLn ""
 
     where
@@ -350,14 +352,15 @@ main = do
             (fmap toEither $ generateEvents kv events)
     -- statsMap :: Map (tid, window tag, counter) (Maybe [(stat name, value)])
     -- putStrLn $ ppShow r
-    -- statsRaw :: [(tid, window tag, counter), [(stat name, value)]]
     -- putStrLn $ show tidMap
-    let statsRaw =
+    let
+        -- statsRaw :: [(tid, window tag, counter), [(stat name, value)]]
+        statsRaw =
             -- TODO: get the sorting field from Config/CLI
-              List.sortOn (getStatField "tid")
+              -- List.sortOn (getStatField "tid")
             -- TODO: get the threshold from Config/CLI
             -- $ filter (\x -> fromJust (getStatField "total" x) > 0)
-            $ map (\(k, v) -> (k, filter (\(k1,_) -> k1 /= "latest") v))
+              map (\(k, v) -> (k, filter (\(k1,_) -> k1 /= "latest") v))
             $ map (\(k, v) -> (k, fromJust v))
             $ filter (\(_, v) -> isJust v)
             $ Map.toList statsMap
