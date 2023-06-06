@@ -266,7 +266,29 @@ printAllCounters statsRaw tidMap ctrs w = do
             then putStrLn $ "Global thread wise stat summary"
             else do
                 putStrLn $ "Window [" ++ w ++ "]" ++ " thread wise stat summary"
-                mapM_ (printWindowLevelCounter windowTotals) windowLevelCounters
+                mapM_ (printWindowLevelCounter windowTotals)
+                    [ProcessCPUTime, ProcessUserCPUTime, ProcessSystemCPUTime]
+                if ":foreign" `List.isSuffixOf` w
+                then return ()
+                else do
+                    putStrLn ""
+                    let threadCPUTimeTotal =
+                              sum
+                            $ fmap snd
+                            $ filter (selectCounter ThreadCPUTime) windowTotals
+                    putStrLn $ "ThreadCPUTime:" ++ toString threadCPUTimeTotal
+                    let gcCPUTime =
+                              head
+                            $ fmap snd
+                            $ filter (selectCounter GCCPUTime) windowTotals
+                    putStrLn $ "GcCPUTime:" ++ toString gcCPUTime
+                    let processCPUTime =
+                              head
+                            $ fmap snd
+                            $ filter (selectCounter ProcessCPUTime) windowTotals
+                    let rtsCPUTime =
+                            processCPUTime - gcCPUTime - threadCPUTimeTotal
+                    putStrLn $ "RtsCPUTime:" ++ toString rtsCPUTime
 
         printTable ((header : List.transpose allColumns) ++ [separator, summary])
         putStrLn ""
