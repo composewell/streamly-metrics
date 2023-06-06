@@ -171,8 +171,15 @@ printWindowCounter statsRaw tidMap (w, ctr) = do
     let statsFiltered = filter select statsRaw
     let grandTotal =
             sum $ map (\x -> fromJust (getStatField "total" x)) statsFiltered
-    let statsString = map (\(k, v) -> (k, map toString v)) statsFiltered
-    printTable (header : take 100 (map addTid statsString))
+    let statsSorted = List.sortOn (Down . getStatField "total") statsFiltered
+        statsString = map (\(k, v) -> (k, map toString v)) statsSorted
+        allRows = map addTid statsString
+        cnt = length allRows
+        maxLines = 100
+    printTable (header : take maxLines allRows)
+    if cnt > maxLines
+    then putStrLn $ "..." ++ show (cnt - maxLines) ++ " lines omitted ..."
+    else return ()
     putStrLn $ "\nGrand total: " ++ Text.unpack (prettyI (Just ',') grandTotal)
     putStrLn ""
 
@@ -262,7 +269,8 @@ printAllCounters statsRaw tidMap ctrs w = do
             -- Printing grand totals line at the bottom
             grandTotals = fmap sum allCounterTotals
             separator = replicate (length (head allRows)) " "
-            summary = "-" : "-" : "-" : fmap toString grandTotals
+            summary =
+                "-" : "-" : toString (sum counts) : fmap toString grandTotals
 
         if w == "default"
             then putStrLn $ "Global thread wise stat summary"
@@ -292,7 +300,12 @@ printAllCounters statsRaw tidMap ctrs w = do
                             processCPUTime - gcCPUTime - threadCPUTimeTotal
                     putStrLn $ "RtsCPUTime:" ++ toString rtsCPUTime
 
-        printTable ((header : take 100 allRows) ++ [separator, summary])
+        let cnt = length allRows
+            maxLines = 100
+        printTable ((header : take maxLines allRows) ++ [separator, summary])
+        if cnt > maxLines
+        then putStrLn $ "..." ++ show (cnt - maxLines) ++ " lines omitted ..."
+        else return ()
         putStrLn ""
 
     where
