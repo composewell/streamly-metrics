@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DoAndIfThenElse #-}
 module Main (main) where
 
 import Aggregator
@@ -139,9 +140,9 @@ fill i x =
 
 printTable :: [[String]] -> IO ()
 printTable rows = do
-    let (header:rest) = map (unwords . fillRow) rows
-    putStrLn $ unlines $ header:unwords separatorRow:rest
-    -- putStrLn "\n"
+    case map (unwords . fillRow) rows of
+        [] -> putStrLn "printTable: empty rows"
+        (header:rest) -> putStrLn $ unlines $ header:unwords separatorRow:rest
 
     where
 
@@ -161,10 +162,11 @@ printWindowCounter ::
 printWindowCounter statsRaw tidMap (w, ctr) = do
     if w == "default"
         then
-            putStrLn $ "Entire thread stats for [" ++ show ctr ++ "]"
+            putStrLn $ "Global thread wise stats for [" ++ show ctr ++ "]"
         else
             putStrLn
-                $ "[" ++ w ++ "]" ++ " window stats for [" ++ show ctr ++ "]"
+                $ "Window [" ++ w ++ "]" ++ " thread wise stats for ["
+                    ++ show ctr ++ "]"
     let statsFiltered = filter select statsRaw
     let grandTotal =
             sum $ map (\x -> fromJust (getStatField "total" x)) statsFiltered
@@ -202,6 +204,12 @@ windowLevelCounters =
     , GCCPUTime
     ]
 
+-- XXX Instead of buffering the entire data and then process it, we can build
+-- this report incrementally using a Fold, as the data comes. Different reports
+-- can have different folds. That way we won't have to buffer the entire data
+-- which could be extremely large. Also, we will be able to report online, in
+-- real time. We will need a Map of windows, which will store a Map of tids
+-- which will store a list or Map of counters.
 printAllCounters ::
        [((Word32, String, Counter), [(String, Int)])]
     -> Map Word32 String
@@ -210,57 +218,87 @@ printAllCounters ::
     -> IO ()
 printAllCounters statsRaw tidMap ctrs w = do
     let
+        windowTotals :: [((Word32, Counter), Int)]
         windowTotals = fmap toTotal $ filter selectWindow statsRaw
-        allCounterTotals =
+
+        tidList =
             fmap
-                (\f -> fmap snd $ filter f windowTotals)
-                (fmap selectCounter ctrs)
-        grandTotals = fmap sum allCounterTotals
+                (\f -> fmap (fromIntegral . fst . fst) $ filter f windowTotals)
+                (fmap selectCounter ctrs1)
 
-        -- XXX Head should not be ProcessCPUTime, as it is not available for
-        -- default window.
-        oneCounterTotals = filter (selectCounter (head ctrs)) windowTotals
-        tids = fmap fromIntegral $ fmap fst $ fmap fst $ oneCounterTotals
-        labels = fmap (getLabel . fromIntegral) tids
+    if null ctrs1
+    then putStrLn "printAllCounters: no counters to print"
+    else do
+        -- Each tid must have all the counters present and in the same order.
+        r <- Stream.fold Fold.the $ Stream.fromList tidList
+        tids <-
+            case r of
+                Nothing -> error $ "A bug or something wrong with input data, "
+                    ++ "Not all tids have all the counters present, "
+                    ++ "or the order is wrong. ctrs: " ++ show ctrs1
+                    ++ " tidList: " ++ show tidList
+                Just x -> return x
 
-        windowCounts = fmap toCounts $ filter selectWindow statsRaw
-        oneCounterCounts = filter (selectCounter (head ctrs)) windowCounts
-        counts = fmap fromIntegral $ fmap snd $ oneCounterCounts
+        let
+            allCounterTotals =
+                fmap
+                    (\f -> fmap snd $ filter f windowTotals)
+                    (fmap selectCounter ctrs1)
 
-        allColumns =
-              fmap toString tids
-            : labels
-            : fmap toString counts
-            : fmap (fmap toString) allCounterTotals
+            labels = fmap (getLabel . fromIntegral) tids
 
-        separator = replicate (length allColumns) " "
-        summary = "-" : "-" : "-" : fmap toString grandTotals
+            windowCounts = fmap toCounts $ filter selectWindow statsRaw
+            oneCounterCounts = filter (selectCounter (head ctrs1)) windowCounts
+            counts = fmap fromIntegral $ fmap snd $ oneCounterCounts
 
-    if w == "default"
-        then putStrLn $ "Entire threads"
-        else do
-            putStrLn $ "[" ++ w ++ "]" ++ " window"
-            mapM_ (printWindowLevelCounter windowTotals) windowLevelCounters
+            allColumns =
+                  fmap toString tids
+                : labels
+                : fmap toString counts
+                : fmap (fmap toString) allCounterTotals
 
-    printTable ((header : List.transpose allColumns) ++ [separator, summary])
-    putStrLn ""
+            -- Printing grand totals line at the bottom
+            grandTotals = fmap sum allCounterTotals
+            separator = replicate (length allColumns) " "
+            summary = "-" : "-" : "-" : fmap toString grandTotals
+
+        if w == "default"
+            then putStrLn $ "Global thread wise stat summary"
+            else do
+                putStrLn $ "Window [" ++ w ++ "]" ++ " thread wise stat summary"
+                mapM_ (printWindowLevelCounter windowTotals) windowLevelCounters
+
+        printTable ((header : List.transpose allColumns) ++ [separator, summary])
+        putStrLn ""
 
     where
 
+    -- a "foreign" window does not have the allocated counter
+    ctrs1 =
+        if ("foreign:" `List.isPrefixOf` w)
+        then ctrs List.\\ [ThreadAllocated]
+        else ctrs
     printWindowLevelCounter wt c = do
         -- Only one thread should have this
-        let val =
-                  head
-                $ fmap snd
-                $ filter (selectCounter c) wt
-        putStrLn $ show c ++ ": " ++ toString val
+        let val = fmap snd $ filter (selectCounter c) wt
+        case val of
+            [] -> do
+                {-
+                -- a "foreign window does not have GCCPUTime
+                putStrLn $ "printWindowLevelCounter: counter "
+                        ++ show c ++ " not found in windowTotals"
+                -}
+                return ()
+            [x] -> putStrLn $ show c ++ ": " ++ toString x
+            _ -> error $ "Multiple values for counter " ++ show c
+                        ++ " in window " ++ w
 
     toString = Text.unpack . prettyI (Just ',')
     header =
         ["tid"
         , "label"
         , "samples"
-        ] ++ map show ctrs
+        ] ++ map show ctrs1
     selectWindow ((_, window, _), _) = window == w
     selectCounter c ((_, ctr), _) = ctr == c
     toTotal ((tid, _, ctr), v) = ((tid, ctr), fromJust $ List.lookup "total" v)
@@ -296,7 +334,7 @@ main = do
             -- TODO: get the sorting field from Config/CLI
               List.sortOn (getStatField "tid")
             -- TODO: get the threshold from Config/CLI
-            $ filter (\x -> fromJust (getStatField "total" x) > 0)
+            -- $ filter (\x -> fromJust (getStatField "total" x) > 0)
             $ map (\(k, v) -> (k, filter (\(k1,_) -> k1 /= "latest") v))
             $ map (\(k, v) -> (k, fromJust v))
             $ filter (\(_, v) -> isJust v)

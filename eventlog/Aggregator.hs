@@ -7,11 +7,11 @@ module Aggregator
 where
 
 import Data.Int (Int64)
-import Data.Word (Word32)
 import EventParser (Event (..), Counter(..), Location(..))
 import Streamly.Internal.Data.Fold (Fold(..), Step(..))
 import Streamly.Internal.Data.Tuple.Strict (Tuple'(..))
 
+import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
@@ -42,26 +42,30 @@ translateThreadEvents = Fold step initial extract
             else []))
             -}
 
+    bcastList v tid value ctr loc =
+        case v of
+            Just set -> fmap f ("default" : Set.toList set)
+            Nothing -> [f "default"]
+
+        where
+
+        f x = CounterEvent tid x ctr loc value
+
     threadEventBcast mp tid value ctr loc = do
         let r = Map.lookup ctr mp
-        case r of
-            Just set ->
-                pure $ Partial $ Tuple' mp (fmap f ("default" : Set.toList set))
-            Nothing ->
-                pure $ Partial $ Tuple' mp [f "default"]
+         in pure $ Partial $ Tuple' mp (bcastList r tid value ctr loc)
 
-        where
+    -- A foreign window cannot have any other events inside it therefore we do
+    -- not need to remember it in the state.
+    windowStartForeign mp tid tag value ctr = do
+        let r = Map.lookup ctr mp
+            e = CounterEvent tid tag ctr Resume value
+         in pure $ Partial $ Tuple' mp (e : bcastList r tid value ctr Resume)
 
-        f tag = CounterEvent tid tag ctr loc value
-
-    {-
-    threadEvent mp tid value ctr loc =
-        pure $ Partial $ Tuple' mp [f "default"]
-
-        where
-
-        f x = ((tid, x, ctr), (loc, (fromIntegral value)))
-    -}
+    windowEndForeign mp tid tag value ctr = do
+        let r = Map.lookup ctr mp
+            e = CounterEvent tid tag ctr Exit value
+         in pure $ Partial $ Tuple' mp (e : bcastList r tid value ctr Suspend)
 
     windowStart mp tid tag value ctr = do
         let mp1 = Map.alter alter ctr mp
@@ -93,12 +97,28 @@ translateThreadEvents = Fold step initial extract
 
         f x = CounterEvent tid x ctr Exit value
 
+    -- Broadcast "default" window events to all windows in the thread
     step (Tuple' mp _) (CounterEvent tid "" counter Resume value) =
         threadEventBcast mp tid value counter Resume
     step (Tuple' mp _) (CounterEvent tid "" counter Suspend value) =
         threadEventBcast mp tid value counter Suspend
     step _ (CounterEvent _ "" _ Exit _) = error "Unexpected Exit event"
 
+    -- Broadcast "foreign"" window events to all windows in the thread
+    -- including the "default" window to include them in the entire thread
+    -- timings. Only thread level counters (ThreadCPUTime) are to be broadcast
+    -- the rest fall through to the regular window handling below.
+    step (Tuple' mp _) (CounterEvent tid tag ThreadCPUTime Resume value)
+        | "foreign:" `List.isPrefixOf` tag = do
+        windowStartForeign mp tid tag value ThreadCPUTime
+    step (Tuple' mp _) (CounterEvent tid tag ThreadCPUTime Suspend value)
+        | "foreign:" `List.isPrefixOf` tag = do
+        windowEndForeign mp tid tag value ThreadCPUTime
+    step _ (CounterEvent _ tag _ Exit _)
+        | "foreign:" `List.isPrefixOf` tag =
+        error "Unexpected Exit event"
+
+    -- User defined window events
     step (Tuple' mp _) (CounterEvent tid tag counter Resume value) =
         windowStart mp tid tag value counter
     step (Tuple' mp _) (CounterEvent tid tag counter Suspend value) =
@@ -113,6 +133,7 @@ translateThreadEvents = Fold step initial extract
 data CollectState =
     CollectInit | CollectPartial Int64 | CollectDone Int64 | CollectExit Int64
 
+-- XXX Pass the window, counter as well for information in errors
 {-# INLINE collectThreadCounter #-}
 collectThreadCounter :: Fold IO (Location, Int64) (Maybe (Either Int64 Int64))
 collectThreadCounter = Fold step initial extract
