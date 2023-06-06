@@ -109,13 +109,13 @@ translateThreadEvents = Fold step initial extract
     -- timings. Only thread level counters (ThreadCPUTime) are to be broadcast
     -- the rest fall through to the regular window handling below.
     step (Tuple' mp _) (CounterEvent tid tag ThreadCPUTime Resume value)
-        | "foreign:" `List.isPrefixOf` tag = do
+        | ":foreign" `List.isSuffixOf` tag = do
         windowStartForeign mp tid tag value ThreadCPUTime
     step (Tuple' mp _) (CounterEvent tid tag ThreadCPUTime Suspend value)
-        | "foreign:" `List.isPrefixOf` tag = do
+        | ":foreign" `List.isSuffixOf` tag = do
         windowEndForeign mp tid tag value ThreadCPUTime
     step _ (CounterEvent _ tag _ Exit _)
-        | "foreign:" `List.isPrefixOf` tag =
+        | ":foreign" `List.isSuffixOf` tag =
         error "Unexpected Exit event"
 
     -- User defined window events

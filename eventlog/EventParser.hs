@@ -316,7 +316,7 @@ event kv = do
                         (fromIntegral (len - 6))
                         (Fold.lmap (chr . fromIntegral) Fold.toList)
             let (loc, rest) = span (/= ':') msg
-                tag = drop 1 rest ++ ":" ++ show tid
+                tag = show tid ++ ":" ++ drop 1 rest
             -- Parser.fromEffect $ putStrLn $ "tid = " ++ show tid1 ++ " loc = " ++ loc ++ " tag = " ++ tag
             let counterId =
                     case eventToCounter ctrType of

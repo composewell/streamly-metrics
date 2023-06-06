@@ -275,7 +275,7 @@ printAllCounters statsRaw tidMap ctrs w = do
 
     -- a "foreign" window does not have the allocated counter
     ctrs1 =
-        if ("foreign:" `List.isPrefixOf` w)
+        if (":foreign" `List.isSuffixOf` w)
         then ctrs List.\\ [ThreadAllocated]
         else ctrs
     printWindowLevelCounter wt c = do
@@ -354,7 +354,7 @@ main = do
     -- TODO: filter the counters to be printed based on Config/CLI
     -- TODO: filter the windows or threads to be printed
     let ctrs = List.nub $ fmap snd windowCounterList
-        wins = List.nub $ fmap fst windowCounterList
+        wins = List.nub $ "default" : fmap fst windowCounterList
     let f = printAllCounters statsRaw (fmap fromJust tidMap) ctrs
      in mapM_ f wins
 
