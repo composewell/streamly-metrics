@@ -45,6 +45,7 @@ import qualified Streamly.Internal.Data.Fold.Container as Fold
 -- Utility functions, can go in streamly-core
 -------------------------------------------------------------------------------
 
+{-
 {-# INLINE second #-}
 second :: (Monad m, Eq a) => Fold m b c -> Fold m (a,b) (a,c)
 second f = Fold.unzip (fmap fromJust Fold.the) f
@@ -58,6 +59,7 @@ secondMaybe f = fmap f1 (Fold.unzip (fmap fromJust Fold.the) f)
 
     f1 (_, Nothing) = Nothing
     f1 (a, Just c) = Just (a, c)
+-}
 
 -------------------------------------------------------------------------------
 -- Application
@@ -66,8 +68,11 @@ secondMaybe f = fmap f1 (Fold.unzip (fmap fromJust Fold.the) f)
 double :: Int -> Double
 double = fromIntegral
 
-untilLeft :: Monad m => Fold m b1 b2 -> Fold m (Either b1 b1) b2
-untilLeft f = Fold.takeEndBy isLeft (Fold.lmap (either id id) f)
+untilLeft :: Monad m => Fold m b1 b2 -> Fold m (Either (Maybe b1) b1) b2
+untilLeft f =
+      Fold.takeEndBy isLeft
+    $ Fold.lmap (either id Just)
+    $ Fold.catMaybes f
 
 -- Statistics collection for each counter
 {-# INLINE stats #-}
@@ -85,11 +90,11 @@ stats =
         ]
 
 {-# INLINE threadStats #-}
-threadStats :: Fold IO (Either Int64 Int64) [(String, Int)]
+threadStats :: Fold IO (Either (Maybe Int64) Int64) [(String, Int)]
 threadStats = untilLeft stats
 
 {-# INLINE windowStats #-}
-windowStats :: Fold IO (Either Int64 Int64) [(String, Int)]
+windowStats :: Fold IO (Either (Maybe Int64) Int64) [(String, Int)]
 windowStats = Fold.many (untilLeft Fold.sum) stats
 
 {-# INLINE toStats #-}
@@ -107,11 +112,11 @@ toStats = Fold.demuxKvToMap (\k -> pure (f1 k))
     f k1 collectStats =
           Fold.lmap (\x -> (k1, x))
         -- $ Fold.lmapM (\x -> print x >> pure x)
-        $ Fold.scanMaybe (secondMaybe collectThreadCounter)
-        $ Fold.postscan (second collectStats)
+        $ Fold.scanMaybe collectThreadCounter
+        $ Fold.postscan collectStats
         -- $ Fold.filter (\kv -> snd (snd kv !! 0) > 50000)
         -- $ Fold.trace print
-        $ Fold.lmap snd Fold.latest
+        $ Fold.latest
 
     -- For the main thread
     f1 k1@(_, "default", _) = f k1 threadStats

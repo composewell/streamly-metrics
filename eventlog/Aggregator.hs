@@ -1,3 +1,4 @@
+{-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE CPP #-}
 module Aggregator
@@ -7,6 +8,8 @@ module Aggregator
 where
 
 import Data.Int (Int64)
+import Data.Set (Set)
+import Data.Word (Word32)
 import EventParser (Event (..), Counter(..), Location(..))
 import Streamly.Internal.Data.Fold (Fold(..), Step(..))
 import Streamly.Internal.Data.Tuple.Strict (Tuple'(..))
@@ -21,6 +24,33 @@ import qualified Data.Set as Set
 
 -- XXX It would be more intuitive for scans if we use "Partial s b" instead of
 -- using extract. We can avoid having to save the result in state many a times.
+
+-- All counter events are recorded against a unique key (tid, window, counter).
+--
+-- A user defined window is prefixed with the thread-id of the thread which
+-- started it. Therefore, if the window code is entered by multiple threads,
+-- each thread is assigned a different window name.
+--
+-- Each window accounts all threads active at the time when the window is
+-- active. Therefore, any thread start/stop events are broadcast to all the
+-- currently active windows.
+--
+-- When a window starts, many threads may already be existing in the system.
+-- After the window is entered, events of all threads are broadcast to the
+-- window. If a thread was already active when the window was entered, then we
+-- may get a suspend event without first getting a resume event. Similar,
+-- problem occurs at the end of the window.
+--
+-- XXX Currently, we ignore these are warnings. To get an accurate accounting
+-- we can add APIs to GHC so that we stop all threads when the window starts or
+-- exits.
+
+-- TODO: When different threads enter the same window we can combine the data
+-- from all the threads. i.e. when the window exits, we combine the results
+-- into a common pool, we can use (tid 0, window, counter) key for that. This
+-- behavior could be controlled based on a CLI option.
+
+newtype Window = Window (Set Word32) -- thread ids that have joined the window
 
 {-# INLINE translateThreadEvents #-}
 translateThreadEvents :: Fold IO Event [Event]
@@ -40,62 +70,90 @@ translateThreadEvents = Fold step initial extract
             (if v2 /= 0
             then [((tid, "default", ctr2), (OneShot, (fromIntegral v2)))]
             else []))
-            -}
+     -}
 
-    bcastList v tid value ctr loc =
-        case v of
-            Just set -> fmap f ("default" : Set.toList set)
-            Nothing -> [f "default"]
+    bcastToWindows mp tid value ctr loc =
+        -- XXX Can we use alterF to avoid two operations on the map
+        case Map.lookup ctr mp of
+            Just wmap ->
+                let xs = event "default" : fmap event (Map.keys wmap)
+                    wmap1 = fmap updateWindow wmap
+                    -- XXX We can use an IORef to avoid too much churn
+                    mp1 = Map.insert ctr wmap1 mp
+                in (mp1, xs)
+            Nothing -> (mp, [event "default"])
 
         where
 
-        f x = CounterEvent tid x ctr loc value
+        event tag = CounterEvent tid tag ctr loc value
+
+        updateWindow (Window tidSet) = Window (Set.insert tid tidSet)
 
     threadEventBcast mp tid value ctr loc = do
-        let r = Map.lookup ctr mp
-         in pure $ Partial $ Tuple' mp (bcastList r tid value ctr loc)
+        let (mp1, xs) = bcastToWindows mp tid value ctr loc
+         in pure $ Partial $ Tuple' mp1 xs
 
     -- A foreign window cannot have any other events inside it therefore we do
     -- not need to remember it in the state.
+    --
+    -- Broadcast the event to all windows belonging to the counter including
+    -- the "default" window so that it is counted as part of the thread timing.
     windowStartForeign mp tid tag value ctr = do
-        let r = Map.lookup ctr mp
+        let (mp1, xs) = bcastToWindows mp tid value ctr Resume
             e = CounterEvent tid tag ctr Resume value
-         in pure $ Partial $ Tuple' mp (e : bcastList r tid value ctr Resume)
+         in pure $ Partial $ Tuple' mp1 (e : xs)
 
     windowEndForeign mp tid tag value ctr = do
-        let r = Map.lookup ctr mp
+        let (mp1, xs) = bcastToWindows mp tid value ctr Suspend
             e = CounterEvent tid tag ctr Exit value
-         in pure $ Partial $ Tuple' mp (e : bcastList r tid value ctr Suspend)
+         in pure $ Partial $ Tuple' mp1 (e : xs)
 
     windowStart mp tid tag value ctr = do
+        -- trace ("Window start: " ++ tag ++ " ctr " ++ show ctr ++ " tid "
+        --      ++ show tid ++ " value " ++ show value) (return ())
         let mp1 = Map.alter alter ctr mp
         pure $ Partial $ Tuple' mp1 [f tag]
 
         where
 
-        alter Nothing = Just $ Set.singleton tag
-        alter (Just set) =
-            if Set.member tag set
-                then error $ "Duplicate add " ++ "window = " ++ tag
-                        ++ " tid = " ++ show tid
-                else Just $ Set.insert tag set
+        window = Window Set.empty
+
+        alter Nothing = Just $ Map.singleton tag window
+        alter (Just wmap) =
+            case Map.lookup tag wmap of
+                Just _ ->
+                    error $ "Duplicate window add: " ++ "window = " ++ tag
+                            ++ " tid = " ++ show tid
+                Nothing -> Just $ Map.insert tag window wmap
 
         f x = CounterEvent tid x ctr Resume value
 
     windowEnd mp tid tag value ctr = do
-        let mp1 = Map.alter alter ctr mp
-        pure $ Partial $ Tuple' mp1 [f tag]
+        case Map.lookup ctr mp of
+            Nothing -> err1
+            Just wmap ->
+                case Map.lookup tag wmap of
+                    Nothing -> err2
+                    Just (Window tidSet) -> do
+                        let wmap1 = Map.delete tag wmap
+                            mp1 = Map.insert ctr wmap1 mp
+                            -- Purge all the threads part of the window,
+                            -- excluding the current thread.
+                            xs = fmap (purge tag) (Set.toList (Set.delete tid tidSet))
+                            xs1 = evict tag tid : xs
+                        pure $ Partial $ Tuple' mp1 xs1
 
         where
 
-        alter Nothing = error "Window end when window does not exist"
-        alter (Just set) =
-            if Set.member tag set
-                then Just $ Set.delete tag set
-                else error $ "Window end when window does not exist:"
-                        ++ "window = " ++ tag ++ " tid = " ++ show tid
+        err1 = error $ "Counter has no active windows: ctr = "
+                        ++ show ctr ++ " window = " ++ tag
+                        ++ " tid = " ++ show tid
+        err2 = error $ "Window not found in the windows for the counter:"
+                        ++ show ctr ++ " window = " ++ tag
+                        ++ " tid = " ++ show tid
 
-        f x = CounterEvent tid x ctr Exit value
+        evict x t = CounterEvent t x ctr Exit value
+        purge x t = CounterEvent t x ctr Purge value
 
     -- Broadcast "default" window events to all windows in the thread
     step (Tuple' mp _) (CounterEvent tid "" counter Resume value) =
@@ -130,80 +188,98 @@ translateThreadEvents = Fold step initial extract
 
     extract (Tuple' _ xs) = pure xs
 
+-- Note Exit event occurs exclusively for the thread that started a Window,
+-- other threads see the Purge event, Purge cannot occur for window starter
+-- thread. Exit and Purge are used to indicate end of window which results in a
+-- Left value to be emitted.
 data CollectState =
-    CollectInit | CollectPartial Int64 | CollectDone Int64 | CollectExit Int64
+      CollectInit -- before the window is started, or after a Purge
+    | CollectInit1 -- if we get a suspend first instead of Resume
+    | CollectPartial Int64 -- after a Resume
+    | CollectDone Int64 -- after a Suspend, continuing window return (Right v)
+    | CollectExit Int64 -- After an Exit, end of window return (Left v)
+    | CollectPurge -- After a Purge, end of window return (Left Nothing)
 
 -- XXX Pass the window, counter as well for information in errors
 {-# INLINE collectThreadCounter #-}
-collectThreadCounter :: Fold IO (Location, Int64) (Maybe (Either Int64 Int64))
+collectThreadCounter ::
+    Fold IO ((Word32, String, Counter), (Location, Int64))
+    (Maybe (Either (Maybe Int64) Int64))
 collectThreadCounter = Fold step initial extract
 
     where
 
     initial = pure $ Partial CollectInit
 
-    step CollectInit (Resume, v) =
+    -- For non-default windows ignore events until a resume arrives.
+    step CollectInit (_, (Resume, v)) = pure $ Partial $ CollectPartial v
+    step CollectInit stat@((_,tag,_), (Suspend, _)) =
+        if tag == ""
+        then error $ "CollectInit: first event must be Resume, got Suspend."
+                    ++ show stat
+        else do
+            putStrLn $ "Warning! ignoring first Suspend at the start of "
+                ++ "window: " ++ show stat
+            pure $ Partial CollectInit1
+    step CollectInit stat =
+        error $ "CollectInit: expecting Resume or Suspend " ++ show stat
+
+    -- If we are in this state it means it is not the thread that started the
+    -- window. That thread would always have a Resume event as first event.
+    step CollectInit1 (_, (Resume, v)) = pure $ Partial $ CollectPartial v
+    step CollectInit1 (_, (Purge, _)) = pure $ Partial CollectPurge
+    step CollectInit1 stat =
+        error $ "CollectInit1: expecting Resume or Purge" ++ show stat
+
+    step (CollectDone _) (_, (Resume, v)) = pure $ Partial $ CollectPartial v
+    step (CollectDone _) (_, (Purge, _)) = pure $ Partial CollectPurge
+    step (CollectDone _) stat =
+        error $ "CollectDone: expecting Resume or Purge" ++ show stat
+
+    step (CollectExit _) (_, (Resume, v)) = pure $ Partial $ CollectPartial v
+    step (CollectExit _) stat =
+        error $ "CollectExit: expecting Resume." ++ show stat
+
+    step CollectPurge (_, (Resume, v)) = pure $ Partial $ CollectPartial v
+    step CollectPurge (_, (Suspend, _)) = pure $ Partial $ CollectInit1
+    step CollectPurge stat =
+        error $ "CollectPurge: expecting Resume or Suspend." ++ show stat
+
+    step (CollectPartial old) stat@(_, (Suspend, new)) = do
+        let delta = new - old
+        if delta < 0
+            then error $ "CollectPartial: Suspend: counter delta is negative:"
+                    ++  "input = " ++ show stat ++ " old = " ++ show old
+            else pure ()
+        pure $ Partial $ CollectDone delta
+    step (CollectPartial old) stat@(_, (Exit, new)) = do
+        let delta = new - old
+        if delta < 0
+            then error $ "CollectPartial: Exit: counter delta is negative:"
+                    ++  "input = " ++ show stat ++ " old = " ++ show old
+            else pure ()
+        pure $ Partial $ CollectExit delta
+    -- Note: It is important to send a Purge immediately to all the active
+    -- window counters. Otherwise, if the window is entered again without
+    -- exiting the counter may record an incorrect and large value, if we got a
+    -- susepnd event first. If we get a resume event first then we can discard
+    -- the old state.
+    --
+    -- Also Purge causes the window-end event to be emitted, which is important
+    -- for the count of window collections.
+    step (CollectPartial _) stat@(_, (Purge, _)) = do
+        putStrLn $ "Warning! Purging uncollected window counter " ++ show stat
+        pure $ Partial CollectPurge
+    step (CollectPartial _) stat@(_, (Resume, v)) = do
+        -- XXX Missing event after CTRL-C causes this, need to fix that.
+        putStrLn $ "Warning! Lost uncollected counter " ++ show stat
         pure $ Partial $ CollectPartial v
-    step CollectInit stat@(Suspend, _) = do
-        putStrLn $ "Error: Suspend event when counter is not initialized." ++ show stat
-        pure $ Partial CollectInit
-    step CollectInit stat@(Exit, _) = do
-        putStrLn $ "Error: Exit event when counter is not initialized." ++ show stat
-        pure $ Partial CollectInit
-        {-
-    step CollectInit (OneShot, v) =
-        pure $ Partial $ CollectDone v
-        -}
-
-    -- Same handling as CollectInit
-    step (CollectDone _) (Resume, v)
-        = pure $ Partial $ CollectPartial v
-    step acc@(CollectDone _) stat@(Suspend, _) = do
-        putStrLn $ "Error: Suspend event when counter is not initialized." ++ show stat
-        pure $ Partial acc
-    step acc@(CollectDone _) stat@(Exit, _) = do
-        putStrLn $ "Error: Exit event when counter is not initialized." ++ show stat
-        pure $ Partial acc
-        {-
-    step (CollectDone _) (OneShot, v) =
-        pure $ Partial $ CollectDone v
-        -}
-
-    step (CollectExit _) (Resume, v)
-        = pure $ Partial $ CollectPartial v
-    step acc@(CollectExit _) stat@(Suspend, _) = do
-        putStrLn $ "CollectExit: Suspend event when counter is not initialized." ++ show stat
-        pure $ Partial acc
-    step acc@(CollectExit _) stat@(Exit, _) = do
-        putStrLn $ "CollectExit: Exit event when counter is not initialized." ++ show stat
-        pure $ Partial acc
-
-    step (CollectPartial old) (Suspend, new) = do
-            -- putStrLn $ "new = " ++ show new ++ " old = " ++ show old
-            let delta = new - old
-            if delta < 0
-                then error $ "Suspend: counter delta is negative:"
-                        ++  "new = " ++ show new ++ " old = " ++ show old
-                else pure ()
-            pure $ Partial $ CollectDone delta
-    step (CollectPartial old) (Exit, new) = do
-            -- putStrLn $ "new = " ++ show new ++ " old = " ++ show old
-            let delta = new - old
-            if delta < 0
-                then error $ "Exit: counter delta is negative:"
-                        ++  "new = " ++ show new ++ " old = " ++ show old
-                else pure ()
-            pure $ Partial $ CollectExit delta
-    step (CollectPartial _) stat@(Resume, v) = do
-        putStrLn $ "Error: Got a duplicate thread start event " ++ show stat
-        pure $ Partial $ CollectPartial v
-        {-
-    step (CollectPartial _) (OneShot, v) = do
-        putStrLn $ "Error: Bad event data, cannot be in CollectPartial state for a one shot counter."
-        pure $ Partial $ CollectDone v
-        -}
 
     extract CollectInit = pure Nothing
-    extract (CollectPartial _) = pure Nothing
+    extract CollectInit1 = pure Nothing
     extract (CollectDone v) = pure (Just (Right v))
-    extract (CollectExit v) = pure (Just (Left v))
+    extract (CollectExit v) = pure (Just (Left (Just v)))
+    extract (CollectPurge) = pure (Just (Left Nothing))
+    extract (CollectPartial _) = do
+        -- putStrLn $ "End of log: ignoring pending event"
+        pure Nothing

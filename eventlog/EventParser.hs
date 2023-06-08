@@ -237,7 +237,7 @@ data Counter =
     deriving (Show, Eq, Ord)
 
 -- data Location = Enter | Exit | Resume | Suspend deriving Show
-data Location = Resume | Suspend | Exit deriving Show
+data Location = Resume | Suspend | Exit | Purge deriving Show
 
 -- Event tid window counter start/stop value
 data Event =
