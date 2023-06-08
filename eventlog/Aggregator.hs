@@ -267,8 +267,9 @@ collectThreadCounter = Fold step initial extract
     --
     -- Also Purge causes the window-end event to be emitted, which is important
     -- for the count of window collections.
-    step (CollectPartial _) stat@(_, (Purge, _)) = do
-        putStrLn $ "Warning! Purging uncollected window counter " ++ show stat
+    step (CollectPartial _) _stat@(_, (Purge, _)) = do
+        -- XXX we can just report once
+        -- putStrLn $ "Warning! Purging uncollected window counter " ++ show stat
         pure $ Partial CollectPurge
     step (CollectPartial _) stat@(_, (Resume, v)) = do
         -- XXX Missing event after CTRL-C causes this, need to fix that.

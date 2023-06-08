@@ -1,11 +1,13 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE TupleSections #-}
 module Main (main) where
 
 import Aggregator
   ( collectThreadCounter,
     translateThreadEvents,
   )
+import Control.Monad (when)
 import Data.Either (isLeft)
 import Data.Int (Int64)
 import Data.IntMap (IntMap)
@@ -73,6 +75,33 @@ untilLeft f =
       Fold.takeEndBy isLeft
     $ Fold.lmap (either id Just)
     $ Fold.catMaybes f
+
+{-
+{-# INLINE combineStats #-}
+combineStats :: Fold IO (String, Int) (Map String Int)
+combineStats = Fold.demuxKvToMap (pure . f)
+
+    where
+
+    f k =
+        case k of
+            "latest" -> fmap fromJust Fold.latest
+            "total" -> Fold.sum
+            "count" -> Fold.sum
+            "avg" -> fmap (const 0) Fold.drain
+            "minimum" -> fmap fromJust Fold.minimum
+            "maximum" -> fmap fromJust Fold.maximum
+            "stddev" -> fmap (const 0) Fold.drain
+            _ -> error "Unknown stat"
+
+-- | Combine stats collected from different windows
+{-# INLINE combineWindowStats #-}
+combineWindowStats ::
+    Fold IO
+        ((Word32, String, Counter), (String, Int))
+        (Map (Word32, String, Counter) (Map String Int))
+combineWindowStats = Fold.kvToMap combineStats
+-}
 
 -- Statistics collection for each counter
 {-# INLINE stats #-}
@@ -177,10 +206,11 @@ printWindowCounter statsRaw tidMap (w, ctr) = do
     let grandTotal =
             sum $ map (\x -> fromJust (getStatField "total" x)) statsFiltered
     let statsSorted = List.sortOn (Down . getStatField "total") statsFiltered
-        statsString = map (\(k, v) -> (k, map toString v)) statsSorted
+        statsOrdered = fmap (\(k,v) -> (k, orderStats v)) statsSorted
+        statsString = map (\(k, v) -> (k, map toString v)) statsOrdered
         allRows = map addTid statsString
         cnt = length allRows
-        maxLines = 100
+        maxLines = 10
     printTable (header : take maxLines allRows)
     if cnt > maxLines
     then putStrLn $ "..." ++ show (cnt - maxLines) ++ " lines omitted ..."
@@ -191,16 +221,29 @@ printWindowCounter statsRaw tidMap (w, ctr) = do
     where
 
     toString (k, v) = (k, Text.unpack $ prettyI (Just ',') v)
-    header =
-        ["tid"
-        , "label"
-        , "total"
+    statNames =
+        [ "total"
         , "count"
         , "avg"
         , "minimum"
         , "maximum"
         , "stddev"
         ]
+    header =
+        ["tid"
+        , "label"
+        ] ++ statNames
+
+    -- put in a fixed order so that code changes do not affect reporting
+    orderStats xs =
+        [ ("total", fromJust (lookup "total" xs))
+        , ("count", fromJust (lookup "count" xs))
+        , ("avg", fromJust (lookup "avg" xs))
+        , ("minimum", fromJust (lookup "minimum" xs))
+        , ("maximum", fromJust (lookup "maximum" xs))
+        , ("stddev", fromJust (lookup "stddev" xs))
+        ]
+
     addTid ((tid, _, _), v) =
         let r = Map.lookup tid tidMap
             lb = case r of
@@ -224,12 +267,13 @@ windowLevelCounters =
 -- real time. We will need a Map of windows, which will store a Map of tids
 -- which will store a list or Map of counters.
 printAllCounters ::
-       [((Word32, String, Counter), [(String, Int)])]
+       Bool
+    -> [((Word32, String, Counter), [(String, Int)])]
     -> Map Word32 String
     -> [Counter]
     -> String
     -> IO ()
-printAllCounters statsRaw tidMap ctrs w = do
+printAllCounters concurrent statsRaw tidMap ctrs w = do
     let
         windowTotals :: [((Word32, Counter), Int)]
         windowTotals = fmap toTotal $ filter selectWindow statsRaw
@@ -280,33 +324,30 @@ printAllCounters statsRaw tidMap ctrs w = do
         if w == "default"
             then putStrLn $ "Global thread wise stat summary"
             else do
+                -- When collapsing windows, if the windows are concurrent then
+                -- we cannot combine the window level counters.
                 putStrLn $ "Window [" ++ w ++ "]" ++ " thread wise stat summary"
-                mapM_ (printWindowLevelCounter windowTotals)
-                    [ProcessCPUTime, ProcessUserCPUTime, ProcessSystemCPUTime]
-                if ":foreign" `List.isSuffixOf` w
-                then return ()
-                else do
-                    putStrLn ""
-                    let threadCPUTimeTotal =
-                              sum
-                            $ fmap snd
-                            $ filter (selectCounter ThreadCPUTime) windowTotals
-                    putStrLn $ "ThreadCPUTime:" ++ toString threadCPUTimeTotal
-                    let gcCPUTime =
-                              head
-                            $ fmap snd
-                            $ filter (selectCounter GCCPUTime) windowTotals
-                    putStrLn $ "GcCPUTime:" ++ toString gcCPUTime
-                    let processCPUTime =
-                              head
-                            $ fmap snd
-                            $ filter (selectCounter ProcessCPUTime) windowTotals
-                    let rtsCPUTime =
-                            processCPUTime - gcCPUTime - threadCPUTimeTotal
-                    putStrLn $ "RtsCPUTime:" ++ toString rtsCPUTime
+                when (not concurrent) $ do
+                    mapM_ (printWindowLevelCounter windowTotals)
+                        [ProcessCPUTime, ProcessUserCPUTime, ProcessSystemCPUTime]
+                    if ":foreign" `List.isSuffixOf` w
+                    then return ()
+                    else do
+                        putStrLn ""
+                        let threadCPUTimeTotal =
+                                getWindowLevelCounter sum windowTotals ThreadCPUTime
+                        putStrLn $ "ThreadCPUTime:" ++ toString threadCPUTimeTotal
+                        let gcCPUTime =
+                                getWindowLevelCounter head windowTotals GCCPUTime
+                        putStrLn $ "GcCPUTime:" ++ toString gcCPUTime
+                        let processCPUTime =
+                                getWindowLevelCounter head windowTotals ProcessCPUTime
+                        let rtsCPUTime =
+                                processCPUTime - gcCPUTime - threadCPUTimeTotal
+                        putStrLn $ "RtsCPUTime:" ++ toString rtsCPUTime
 
         let cnt = length allRows
-            maxLines = 100
+            maxLines = 10
         printTable ((header : take maxLines allRows) ++ [separator, summary])
         if cnt > maxLines
         then putStrLn $ "..." ++ show (cnt - maxLines) ++ " lines omitted ..."
@@ -320,6 +361,7 @@ printAllCounters statsRaw tidMap ctrs w = do
         if (":foreign" `List.isSuffixOf` w)
         then ctrs List.\\ [ThreadAllocated]
         else ctrs
+    getWindowLevelCounter f wt c = f $ fmap snd $ filter (selectCounter c) wt
     printWindowLevelCounter wt c = do
         -- Only one thread should have this
         let val = fmap snd $ filter (selectCounter c) wt
@@ -353,12 +395,33 @@ printAllCounters statsRaw tidMap ctrs w = do
             Just label -> label
             Nothing -> "-"
 
+-- | Combine stats from all windows with the same name but different thread-id
+flattenStats ::
+       [((Word32, String, Counter), [(String, Int)])]
+    -> IO [((Word32, String, Counter), [(String, Int)])]
+flattenStats statsRaw = do
+    let renameWindow w =
+            let (_, r) = span (/= ':') w
+            in if null r then w else '0':r
+        rename ((tid, tag, ctr), v) = ((tid, renameWindow tag, ctr), v)
+        getTid w =
+            let (tid, r) = span (/= ':') w
+            in if null r then Nothing else Just (read tid :: Word32)
+        matching ((tid, tag, _), _) =
+            case getTid tag of
+                Nothing -> False
+                Just x -> x == tid
+        statsFiltered = fmap rename $ filter matching statsRaw
+
+    return statsFiltered
+
 -- XXX Are the events for a particular thread guaranteed to come in order. What
 -- if a thread logged events to a particular capability buffer and then got
 -- scheduled on another capability before its eventlog could be flushed from
 -- the previous capability?
 main :: IO ()
 main = do
+    let flattenWindows = False
     (path:[]) <- getArgs
     let stream = File.readChunks path
     (kv, rest) <- parseLogHeader $ StreamK.fromStream stream
@@ -382,13 +445,19 @@ main = do
             $ map (\(k, v) -> (k, fromJust v))
             $ filter (\(_, v) -> isJust v)
             $ Map.toList statsMap
+
+    -- XXX Take a window argument from config/CLI and rename only specific
+    -- windows or all windows depending on that.
+    statsFlattened <-
+        (if flattenWindows then flattenStats else return) statsRaw
+
     let windowCounterList =
               List.nub
             -- XXX Control this by config
             $ filter (\(w,_) -> not (":foreign" `List.isSuffixOf` w))
             $ filter (\(_,c) -> c `notElem` windowLevelCounters)
             $ map (\(_, window, counter) -> (window, counter))
-            $ map fst statsRaw
+            $ map fst statsFlattened
     mapM_ checkLabel (Map.toList tidMap)
 
     putStrLn "--------------------------------------------------"
@@ -400,7 +469,12 @@ main = do
     -- TODO: filter the windows or threads to be printed
     let ctrs = List.nub $ fmap snd windowCounterList
         wins = List.nub $ "default" : fmap fst windowCounterList
-    let f = printAllCounters statsRaw (fmap fromJust tidMap) ctrs
+        -- hack - currently we do not compute avg and stddev in flattened
+        getStats w = if w == "default" then statsRaw else statsFlattened
+
+    let f w =
+            printAllCounters
+                flattenWindows (getStats w) (fmap fromJust tidMap) ctrs w
      in mapM_ f wins
 
     putStrLn "--------------------------------------------------"
@@ -409,7 +483,8 @@ main = do
     putStrLn ""
 
     -- For each (window, counter) list all threads
-    mapM_ (printWindowCounter statsRaw (fmap fromJust tidMap)) windowCounterList
+    let f (w,c) = printWindowCounter (getStats w) (fmap fromJust tidMap) (w,c)
+     in mapM_ f windowCounterList
 
     where
 
