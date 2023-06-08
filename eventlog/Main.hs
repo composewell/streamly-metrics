@@ -384,6 +384,8 @@ main = do
             $ Map.toList statsMap
     let windowCounterList =
               List.nub
+            -- XXX Control this by config
+            $ filter (\(w,_) -> not (":foreign" `List.isSuffixOf` w))
             $ filter (\(_,c) -> c `notElem` windowLevelCounters)
             $ map (\(_, window, counter) -> (window, counter))
             $ map fst statsRaw
